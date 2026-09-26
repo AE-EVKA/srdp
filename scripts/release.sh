@@ -6,7 +6,8 @@
 # GitHub Flow: releases tag a commit on main directly, there is no separate
 # release branch. This script bumps the version, renames the CHANGELOG.md
 # [Unreleased] section to the new version, runs CI, commits, and tags. It
-# does not build or publish anything, SRDP isn't published to PyPI yet.
+# does not build or publish anything, that's .github/workflows/publish.yml's
+# job, triggered separately once a human publishes the draft release.
 # Pushing the tag triggers .github/workflows/release.yml, which drafts a
 # GitHub Release for someone to review and edit before publishing, it never
 # publishes on its own.
@@ -62,10 +63,6 @@ PREVIOUS_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
 
 info "Starting release process for version $VERSION"
 
-info "Updating version in pyproject.toml..."
-sed -i.bak "s/^version = \".*\"/version = \"$VERSION\"/" pyproject.toml
-rm pyproject.toml.bak
-
 if ! grep -q "^## \[Unreleased\]" CHANGELOG.md; then
     error "CHANGELOG.md has no [Unreleased] section to release."
 fi
@@ -74,6 +71,10 @@ UNRELEASED_BODY=$(awk '/^## \[Unreleased\]/{flag=1; next} /^## /{flag=0} flag' C
 if [ -z "$(echo "$UNRELEASED_BODY" | tr -d '[:space:]')" ]; then
     warn "CHANGELOG.md's [Unreleased] section is empty. Add entries before releasing, or continue if this is intentional."
 fi
+
+info "Updating version in pyproject.toml..."
+sed -i.bak "s/^version = \".*\"/version = \"$VERSION\"/" pyproject.toml
+rm pyproject.toml.bak
 
 info "Renaming CHANGELOG.md's [Unreleased] section to $VERSION..."
 RELEASE_DATE=$(date +%Y-%m-%d)
@@ -84,14 +85,20 @@ if [ -n "$PREVIOUS_TAG" ]; then
     rm CHANGELOG.md.bak
 fi
 
+info "Updating uv.lock..."
+if ! uv lock; then
+    git checkout -- pyproject.toml CHANGELOG.md
+    error "uv lock failed. Fix it before releasing, version bump and changelog reverted."
+fi
+
 info "Running just ci..."
 if ! just ci; then
-    git checkout -- pyproject.toml CHANGELOG.md
-    error "just ci failed. Fix it before releasing, version bump and changelog reverted."
+    git checkout -- pyproject.toml CHANGELOG.md uv.lock
+    error "just ci failed. Fix it before releasing, version bump, changelog and lockfile reverted."
 fi
 
 info "Committing version bump..."
-git add pyproject.toml CHANGELOG.md
+git add pyproject.toml CHANGELOG.md uv.lock
 git commit -m "chore: bump version to $VERSION"
 
 info "Creating git tag v$VERSION..."
