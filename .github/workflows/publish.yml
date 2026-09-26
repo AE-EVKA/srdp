@@ -18,6 +18,22 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v5
+
+      # release.sh always keeps pyproject.toml and the tag in sync, but a
+      # manually created GitHub Release wouldn't go through it. Refuse to
+      # build a version that doesn't match the release tag rather than
+      # silently publishing a mismatch.
+      - name: Verify tag matches pyproject.toml version
+        env:
+          TAG_NAME: ${{ github.event.release.tag_name }}
+        run: |
+          PROJECT_VERSION=$(grep -m1 '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
+          TAG_VERSION="${TAG_NAME#v}"
+          if [ "$PROJECT_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::Release tag $TAG_NAME (version $TAG_VERSION) does not match pyproject.toml's version $PROJECT_VERSION."
+            exit 1
+          fi
+
       - run: uv build
       - uses: actions/upload-artifact@v4
         with:

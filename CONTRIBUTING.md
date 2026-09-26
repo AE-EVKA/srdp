@@ -22,7 +22,7 @@ just --list # see all available commands
 Conventions are documented in [`AGENTS.md`](AGENTS.md) at the repository root. Read it before making changes. Key rules:
 
 - No secrets, credentials, or sensitive data in commits.
-- No `pip` or `conda`, use `uv`.
+- No `pip` or `conda`. Use `uv`.
 - All configuration via Pydantic Settings, never `os.environ` directly.
 - Use `logging.getLogger(__name__)` instead of `print()`.
 - No relative imports.

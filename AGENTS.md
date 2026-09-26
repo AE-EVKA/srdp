@@ -42,7 +42,8 @@ srdp/
 - `requires-python` in `pyproject.toml` has an upper bound (`<3.13`) on purpose. Do not loosen it. An open-ended `>=3.12` lets `uv` pick the newest interpreter satisfying it, and some deps (e.g. `dbt-core`) lag behind new Python releases.
 - Dockerfiles: `uv sync` with explicit extras (`--extra x --extra y`), never `--all-extras`. It pulls in unrelated dev-only deps and can break the build.
 - Local domains are `*.srdp.localhost`, not `.local.dev`. The `.localhost` TLD auto-resolves to loopback, so no `/etc/hosts` edit is needed.
-- Branch names: `<type>/<issue-number>-<short-slug>`, e.g. `feat/58-git-cliff-adoption`. `<type>` matches the Conventional Commits types already used for commits and PR titles (`feat`, `fix`, `docs`, `chore`, `refactor`, `perf`, `test`, `ci`, `revert`). Open an issue first if one doesn't already exist for the change.
+- Branch names: `<type>/<issue-number>-<short-slug>` (e.g. `fix/123-short-desc`), `<type>` = Conventional Commits type. Open an issue first if none exists.
+- Review scripts/workflows/manifests for: injection (unquoted dynamic values in shell/query/template), least privilege (minimum access for containers/credentials/grants), state consistency (mirrored values updated together), failure ordering (validate before mutating).
 
 ## Markdown
 
