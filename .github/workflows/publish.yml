@@ -1,0 +1,64 @@
+name: Publish to PyPI
+
+# Triggers when a GitHub Release is published, not when the tag is pushed
+# (see release.yml, which drafts it). PyPI publishing is irreversible, a
+# version can't be deleted and re-uploaded, so it waits for the same human
+# confirmation step the release notes already get: someone reviews the
+# draft and explicitly publishes it.
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v5
+
+      # A release can be created and published manually against any tag,
+      # bypassing release.yml's tag-push flow entirely, so its ancestry
+      # check can't be assumed to have run. Repeat it here.
+      - name: Verify tagged commit is on main
+        run: |
+          git fetch origin main
+          if ! git merge-base --is-ancestor "${{ github.sha }}" origin/main; then
+            echo "::error::Release ${{ github.event.release.tag_name }} points at a commit not reachable from main, refusing to publish."
+            exit 1
+          fi
+
+      - name: Verify tag matches pyproject.toml version
+        env:
+          TAG_NAME: ${{ github.event.release.tag_name }}
+        run: |
+          PROJECT_VERSION=$(grep -m1 '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
+          TAG_VERSION="${TAG_NAME#v}"
+          if [ "$PROJECT_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::Release tag $TAG_NAME (version $TAG_VERSION) does not match pyproject.toml's version $PROJECT_VERSION."
+            exit 1
+          fi
+
+      - run: uv build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      # Required for PyPI trusted publishing (OIDC), no stored API token.
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1

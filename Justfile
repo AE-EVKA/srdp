@@ -6,13 +6,13 @@ kubeconfig := justfile_directory() + "/deploy/opentofu/scaleway/kubeconfig.yaml"
 
 default: help
 
+# List all available commands
 help:
 	@just --list
 
 # ─── Scaleway landing zone (deploy/scaleway) ─────────────────────────────────
 
-# Run a Scaleway-blueprint recipe, e.g. `just scaleway doctor`, `just scaleway bootstrap-all`,
-# `just scaleway up dev`. Recipes + config: deploy/scaleway/{Justfile,.env}.
+# Delegate to deploy/scaleway's own Justfile
 scaleway *args:
 	@just -f deploy/scaleway/Justfile -d deploy/scaleway {{args}}
 
@@ -23,9 +23,7 @@ docker-tls:
 	mkdir -p deploy/docker/certs
 	mkcert -cert-file deploy/docker/certs/selfsigned.crt -key-file deploy/docker/certs/selfsigned.key "srdp.localhost" "auth.srdp.localhost" "marimo.srdp.localhost" "dagster.srdp.localhost" "streamlit.srdp.localhost" "marquez.srdp.localhost" "api.srdp.localhost" "duckdb.srdp.localhost"
 
-# Create the local kind cluster for Kubernetes testing, if it doesn't already
-# exist, and point kubectl at it. Runs as plain containers on whatever
-# Docker daemon you already have, no separate VM.
+# Create (or reuse) the local kind cluster
 kind-up:
 	kind get clusters 2>/dev/null | grep -qx srdp || kind create cluster --config deploy/kubernetes/kind-config.yaml
 	kubectl config use-context kind-srdp
@@ -34,9 +32,7 @@ kind-up:
 kind-down:
 	kind delete cluster --name srdp
 
-# Build the application images and load them into the kind cluster (pull
-# policy is Never for local dev, so the cluster needs its own copy, kind
-# nodes don't share the host's image store).
+# Build all images and load them into kind
 kind-load-images: kind-up
 	docker build -t rg.nl-ams.scw.cloud/srdp-registry/marimo:v1.0 -f projects/cbs-example/notebooks/Dockerfile .
 	docker build -t rg.nl-ams.scw.cloud/srdp-registry/srdp-etl:v1.0 -f projects/cbs-example/Dockerfile .
@@ -51,14 +47,14 @@ kind-load-images: kind-up
 		rg.nl-ams.scw.cloud/srdp-registry/hub:v1.0 \
 		--name srdp
 
-# Generate mkcert TLS certs and create the k8s TLS secret
+# Generate local TLS certs for the kind stack
 local-tls: kind-up
 	mkdir -p deploy/kubernetes/certs
 	mkcert -cert-file deploy/kubernetes/certs/selfsigned.crt -key-file deploy/kubernetes/certs/selfsigned.key "srdp.localhost" "auth.srdp.localhost" "marimo.srdp.localhost" "dagster.srdp.localhost" "streamlit.srdp.localhost" "marquez.srdp.localhost" "api.srdp.localhost" "duckdb.srdp.localhost"
 	kubectl create namespace {{namespace}} --dry-run=client -o yaml | kubectl apply -f -
 	kubectl create secret tls custom-ingress-cert --namespace {{namespace}} --key deploy/kubernetes/certs/selfsigned.key --cert deploy/kubernetes/certs/selfsigned.crt --dry-run=client -o yaml | kubectl apply -f -
 
-# Deploy the full platform to the local k8s cluster
+# Deploy the full stack to local kind via Helm
 local-deploy: kind-load-images
 	cd deploy/kubernetes/srdp-chart && helm dependency update
 	cd deploy/kubernetes && helm upgrade --install srdp srdp-chart --namespace {{namespace}} --create-namespace -f srdp-chart/values.yaml -f srdp-chart/values-local.yaml
@@ -67,7 +63,7 @@ local-deploy: kind-load-images
 	echo "Traefik ClusterIP: $TRAEFIK_IP"; \
 	cd deploy/kubernetes && helm upgrade srdp srdp-chart --namespace {{namespace}} -f srdp-chart/values.yaml -f srdp-chart/values-local.yaml --set-string "oauth2-proxy.hostAliases[0].ip=$TRAEFIK_IP"
 
-# Tear down local k8s deployment and delete PVCs
+# Uninstall the local Helm release and its PVCs
 local-delete:
 	helm uninstall srdp -n {{namespace}} || true
 	kubectl delete pvc --all -n {{namespace}} || true
@@ -82,39 +78,47 @@ docker-down:
 
 # ─── Production / infra ───────────────────────────────────────────────────────
 
+# Provision the Scaleway cluster with OpenTofu
 prod-apply:
 	cd deploy/opentofu/scaleway && source ./secrets.sh && tofu apply -auto-approve
 
+# Tear down the Scaleway cluster
 prod-destroy:
 	just prod-uninstall || echo "Helm uninstall skipped (cluster may already be down)"
 	cd deploy/opentofu/scaleway && source ./secrets.sh && tofu destroy -auto-approve
 
+# Write the Scaleway kubeconfig locally
 prod-use-kubeconfig:
 	cd deploy/opentofu/scaleway && tofu output -raw kubeconfig > "{{kubeconfig}}" && echo "kubeconfig written to {{kubeconfig}}"
 
+# Print Traefik's LoadBalancer IP
 prod-get-values:
 	@echo "Fetching dynamic values..."
 	@if [ ! -f "{{kubeconfig}}" ]; then echo "kubeconfig not found, run 'just prod-use-kubeconfig' first"; exit 1; fi
 	@KUBECONFIG="{{kubeconfig}}" kubectl get svc srdp-traefik -n {{namespace}} -o jsonpath='{.status.loadBalancer.ingress[0].ip}' | xargs -I{} printf "LOAD_BALANCER_IP:\t%s\n" "{}"
 
+# Deploy only Traefik, to get the first LoadBalancer IP
 prod-traefik-only:
 	cd deploy/kubernetes && \
 		if [ ! -f "{{kubeconfig}}" ]; then echo "kubeconfig not found, run 'just prod-use-kubeconfig' first"; exit 1; fi; \
 		export KUBECONFIG="{{kubeconfig}}"; \
 		helm upgrade --install srdp srdp-chart --namespace {{namespace}} --create-namespace -f srdp-chart/values-prod.yaml --set zitadel.enabled=false --set oauth2-proxy.enabled=false --set dagster.enabled=false --set marimo.enabled=false --set quarto.enabled=false
 
+# Deploy Traefik plus the auth stack only
 prod-auth-only:
 	cd deploy/kubernetes && \
 		if [ ! -f "{{kubeconfig}}" ]; then echo "kubeconfig not found, run 'just prod-use-kubeconfig' first"; exit 1; fi; \
 		export KUBECONFIG="{{kubeconfig}}"; \
 		helm upgrade srdp srdp-chart --namespace {{namespace}} --reset-values -f srdp-chart/values-prod.yaml --set zitadel.enabled=true --set oauth2-proxy.enabled=true --set dagster.enabled=false --set marimo.enabled=false --set quarto.enabled=false
 
+# Deploy the complete production stack
 prod-full:
 	cd deploy/kubernetes && \
 		if [ ! -f "{{kubeconfig}}" ]; then echo "kubeconfig not found, run 'just prod-use-kubeconfig' first"; exit 1; fi; \
 		export KUBECONFIG="{{kubeconfig}}"; \
 		helm upgrade srdp srdp-chart --namespace {{namespace}} --reset-values -f srdp-chart/values-prod.yaml
 
+# Uninstall the production Helm release and release the LoadBalancer
 prod-uninstall:
 	cd deploy/kubernetes && \
 		if [ ! -f "{{kubeconfig}}" ]; then echo "kubeconfig not found, run 'just prod-use-kubeconfig' first"; exit 1; fi; \
@@ -128,35 +132,32 @@ prod-uninstall:
 
 # ─── Images ───────────────────────────────────────────────────────────────────
 
-# Build and push all service images to the Scaleway registry
+# Build and push images to the Scaleway registry
 build-and-push:
 	source deploy/opentofu/scaleway/secrets.sh && bash deploy/opentofu/scaleway/build-and-push.sh
 
 # ─── Development ──────────────────────────────────────────────────────────────
 
-# Install all deps including dev groups and set up pre-commit
+# Install all dependencies and set up pre-commit
 init:
 	uv sync --all-groups --all-extras
 	uv run pre-commit install
 
-# Run ruff linter + formatter check across the whole repo
+# Run ruff check and format check
 lint:
 	uv run ruff check src/ projects/
 	uv run ruff format --check src/ projects/
 
-# Run ty type checker on srdp
+# Run ty on src/srdp
 typecheck:
 	uv run ty check src/srdp
 
-# Run the test suite with coverage. `tests/` doesn't exist yet
-# (docs/reviews/issue-missing-test-suite.md), so this is a no-op with a
-# warning until it does, rather than a hard CI failure. Runs for real, and
-# starts enforcing again, as soon as tests/ has any test files in it.
+# Run pytest if tests/ has any, skip with a warning otherwise
 test:
 	@if [ -d tests ] && find tests -name 'test_*.py' -o -name '*_test.py' 2>/dev/null | grep -q .; then \
 		uv run pytest tests --cov=srdp; \
 	else \
-		echo "warning: no tests/ found, skipping (see docs/reviews/issue-missing-test-suite.md)"; \
+		echo "warning: no tests/ found, skipping."; \
 	fi
 
 # Run lint + typecheck + test
@@ -166,3 +167,7 @@ ci: lint typecheck test
 fix:
 	uv run ruff check --fix src/ projects/
 	uv run ruff format src/ projects/
+
+# Cut a release: bump version, run CI, commit, tag
+release version:
+	./scripts/release.sh "{{version}}"
