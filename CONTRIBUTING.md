@@ -6,7 +6,7 @@ Thank you for your interest in contributing to SRDP.
 
 1. Check the [open issues](https://github.com/srdp-hub/srdp/issues) to see if your idea or bug is already tracked.
 2. For new features or significant changes, open an issue to discuss before submitting a PR.
-3. Fork the repository and create a branch from `main`, named `<type>/<issue-number>-<short-slug>` (e.g. `feat/58-git-cliff-adoption`). `<type>` matches the Conventional Commits types used for commits and PR titles: `feat`, `fix`, `docs`, `chore`, `refactor`, `perf`, `test`, `ci`, `revert`.
+3. Fork the repository and create a branch from `main`, named `<type>/<issue-number>-<short-slug>` (e.g. `fix/123-short-desc`). `<type>` matches the Conventional Commits types used for commits and PR titles: `feat`, `fix`, `docs`, `chore`, `refactor`, `perf`, `test`, `ci`, `revert`.
 
 ## Development setup
 
@@ -36,6 +36,7 @@ We allow AI assistance in code generation and documentation, but all responsibil
 - Keep PRs focused on a single concern.
 - Write a clear description and link any related issues using `Closes #...`.
 - Ensure all CI checks pass: `just ci`.
+- Add an entry under `CHANGELOG.md`'s `[Unreleased]` section for any user-facing change (a new feature, a fix, a breaking change). Skip it for internal-only changes (refactors, CI tweaks, docs typos).
 
 ## Reporting security issues
 

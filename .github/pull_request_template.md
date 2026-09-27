@@ -20,4 +20,5 @@
 - [ ] Linting passes (`just lint`)
 - [ ] pre-commit checks pass (`just pre-commit`)
 - [ ] Documentation updated (if applicable)
+- [ ] `CHANGELOG.md`'s `[Unreleased]` section updated (if user-facing)
 - [ ] No secrets committed
