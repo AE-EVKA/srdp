@@ -29,7 +29,23 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG_NAME: ${{ github.ref_name }}
         run: |
+          VERSION="${TAG_NAME#v}"
+          HEADING=$(grep -m1 "^## \[$VERSION\]" CHANGELOG.md | sed 's/^## //')
+          gh api "repos/${{ github.repository }}/releases/generate-notes" \
+            -f tag_name="$TAG_NAME" -f target_commitish=main --jq .body > notes.md
+
+          if [ -n "$HEADING" ]; then
+            ANCHOR=$(echo "$HEADING" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9 -]//g' | tr ' ' '-')
+            {
+              echo "See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md#$ANCHOR) for the full categorized summary of what changed."
+              echo ""
+              cat notes.md
+            } > combined-notes.md
+          else
+            cp notes.md combined-notes.md
+          fi
+
           gh release create "$TAG_NAME" \
             --title "$TAG_NAME" \
             --draft \
-            --generate-notes
+            --notes-file combined-notes.md
