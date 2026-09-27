@@ -20,11 +20,10 @@ The same logical architecture runs from a laptop (Docker Compose) to a single VM
 | [OAuth2-Proxy](https://oauth2-proxy.github.io/oauth2-proxy/) | Edge authentication. Runs the OIDC login flow and gates protected services via Traefik forward-auth. |
 | [DuckLake](https://ducklake.select/) / [DuckDB](https://duckdb.org/) | Lakehouse storage and the in-process analytical query engine. |
 | [Dagster](https://dagster.io/) | Data orchestration. Asset-based pipelines with scheduling, retries, and lineage. |
-| [dlt](https://dlthub.com/) | Data loading. Extracts data from external sources into the platform. |
+| [dlt](https://dlthub.com/) | Data loading. Planned, not yet integrated. |
 | [dbt](https://www.getdbt.com/) | SQL-based data transformation. |
 | [Polars](https://pola.rs/) | DataFrame library for in-process transformation in Python. |
 | [marimo](https://marimo.io/) | Reactive Python notebooks for interactive analysis. |
-| [Quarto](https://quarto.org/) | Reporting and publishing of analyses as static reports and sites. |
 
 PostgreSQL backs the platform's stateful services (Zitadel and Dagster, and the DuckLake catalog).
 

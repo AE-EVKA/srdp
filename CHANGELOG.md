@@ -4,6 +4,19 @@ All notable changes to SRDP are documented here. The format follows [Keep a Chan
 
 ## [Unreleased]
 
+### Fixed
+
+- `README.md` (the content PyPI renders as the project description) rewritten to be accurate and professional. It previously claimed Quarto and dlt as active components, Quarto is optional and disabled by default, dlt isn't integrated yet.
+- Duplicated content between `README.md` and `docs/index.md` removed. `README.md` is now a short intro linking to the docs site instead of a second copy of the component table, so the two can't drift out of sync again.
+
+### Added
+
+- `docs/00-about.md`: the original tone-of-voice component roster (credit: Daniel Kapitan), preserved and moved out of `README.md`/`docs/index.md` rather than deleted.
+
+### Documentation
+
+- Branch-naming and CHANGELOG-entry requirements added to `CONTRIBUTING.md`/`AGENTS.md`/the PR template.
+
 ## [0.3.0] - 2026-09-27
 
 ### Security

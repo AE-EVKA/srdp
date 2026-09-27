@@ -6,7 +6,7 @@ This file describes the structure and rules of the **Single Repo Data Platform (
 
 ## What this repository is
 
-SRDP assembles a modern open-source data platform (Zitadel, Traefik, Dagster, Polars/DuckDB, marimo, Quarto) into a single Git repository with two deployment targets: Docker Compose and Kubernetes (Helm + Scaleway Kapsule).
+SRDP assembles a modern open-source data platform (Zitadel, Traefik, Dagster, Polars/DuckDB, marimo) into a single Git repository with two deployment targets: Docker Compose and Kubernetes (Helm + Scaleway Kapsule).
 
 ---
 
