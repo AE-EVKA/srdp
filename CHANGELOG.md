@@ -4,6 +4,8 @@ All notable changes to SRDP are documented here. The format follows [Keep a Chan
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-09-27
+
 ### Fixed
 
 - `README.md` (the content PyPI renders as the project description) rewritten to be accurate and professional. It previously claimed Quarto and dlt as active components, Quarto is optional and disabled by default, dlt isn't integrated yet.
@@ -79,7 +81,8 @@ All notable changes to SRDP are documented here. The format follows [Keep a Chan
 
 Initial release.
 
-[Unreleased]: https://github.com/srdp-hub/srdp/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/srdp-hub/srdp/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/srdp-hub/srdp/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/srdp-hub/srdp/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/srdp-hub/srdp/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/srdp-hub/srdp/releases/tag/v0.1.0
