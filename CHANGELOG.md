@@ -4,6 +4,46 @@ All notable changes to SRDP are documented here. The format follows [Keep a Chan
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-27
+
+### Security
+
+- Traefik no longer mounts the Docker socket. Routing moved from Docker label auto-discovery to a static file provider (`config/traefik/traefik.yml`), since a read-only socket mount does not restrict the Docker API reachable through it.
+
+### Added
+
+- OpenLineage bridge emits Dagster run and asset events to Marquez for lineage tracking.
+- `cbs-example` project (renamed from `default-etl`): a dbt pipeline, income enrichment assets, a Marimo notebook with a push-based enrichment demo, and a Streamlit dashboard.
+- Core FastAPI surface (`srdp.api`): catalog reads, Dagster status, and a bearer-token page for calling the API outside the browser.
+- DuckDB UI reverse-proxied through Traefik, with its own background API calls exempted from the SSO redirect rewrite.
+- Static hub landing page linking every platform service.
+- Idempotent Zitadel OIDC redirect-URI provisioning script (`deploy/docker/provision-oidc.sh`).
+- Local Kubernetes testing via `kind`, replacing Colima's built-in k3s.
+- DuckLake IO manager wired into both the Helm chart and the Docker Compose deployment targets.
+- Release management: `scripts/release.sh`, and GitHub Actions workflows that draft GitHub Releases and publish to PyPI via Trusted Publishing.
+- ADRs on RBAC and authentication accepted; other ADRs updated for compliance.
+
+### Changed
+
+- Local domains renamed from `*.local.dev` to `*.srdp.localhost`. The `.localhost` TLD auto-resolves to loopback, so no `/etc/hosts` edit is needed.
+- Quarto removed from the default stack.
+- Marquez, the API, DuckDB UI, and the hub wired into `docker-compose.yml`, with database passwords externalized.
+
+### Fixed
+
+- Dagster module name corrected in `values-local.yaml`.
+- `dagster` made executable in the Dockerfile without `uv run` by adding the venv to `PATH`.
+
+### Documentation
+
+- `cbs-example` README documents the built architecture.
+- All `local.dev` references updated to `srdp.localhost`.
+
+### Dependencies
+
+- CVE remediation dependency upgrades.
+- `api`, `dbt`, `openlineage`, and `dagster-postgres` extras added, build-system pinned, `python<3.13` pinned.
+
 ## [0.2.0] - 2026-06-12
 
 ### Changed
@@ -26,6 +66,7 @@ All notable changes to SRDP are documented here. The format follows [Keep a Chan
 
 Initial release.
 
-[Unreleased]: https://github.com/srdp-hub/srdp/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/srdp-hub/srdp/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/srdp-hub/srdp/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/srdp-hub/srdp/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/srdp-hub/srdp/releases/tag/v0.1.0
