@@ -17,12 +17,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@v5
 
-      # release.sh always keeps pyproject.toml and the tag in sync, but a
-      # manually created GitHub Release wouldn't go through it. Refuse to
-      # build a version that doesn't match the release tag rather than
-      # silently publishing a mismatch.
+      # A release can be created and published manually against any tag,
+      # bypassing release.yml's tag-push flow entirely, so its ancestry
+      # check can't be assumed to have run. Repeat it here.
+      - name: Verify tagged commit is on main
+        run: |
+          git fetch origin main
+          if ! git merge-base --is-ancestor "${{ github.sha }}" origin/main; then
+            echo "::error::Release ${{ github.event.release.tag_name }} points at a commit not reachable from main, refusing to publish."
+            exit 1
+          fi
+
       - name: Verify tag matches pyproject.toml version
         env:
           TAG_NAME: ${{ github.event.release.tag_name }}
