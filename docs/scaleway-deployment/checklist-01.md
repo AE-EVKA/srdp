@@ -52,9 +52,9 @@ What changed is a new template for streamlit, a `streamlit:` block in `values.ya
 
 ### Databases
 
-What changed is the Postgres init script (under `zitadel-db.primary.initdb` in `values.yaml`). It now creates the same four databases as `deploy/docker/initdb/01-create-databases.sh`.
+What changed is the Postgres init script (under `zitadel-db.primary.initdb` in `values.yaml`). It now creates four databases, including `ducklake`, with the same names as the setup service from issue #60.
 
-- [ ] I compared the chart's init script with the Compose script line by line.
+- [ ] I compared the chart's init script with the #60 setup service, and both create the same databases and roles.
 - [ ] I ran `just local-delete` before deploying, because the init script only runs against an empty volume.
 - [ ] `kubectl get pvc -n srdp` showed no leftover volumes before the new deploy.
 - [ ] `kubectl exec -it <postgres-pod> -n srdp -- psql -U postgres -c '\l'` lists `zitadel`, `dagster`, `marquez` and `ducklake`.

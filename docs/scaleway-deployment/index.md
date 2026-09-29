@@ -67,6 +67,8 @@ graph LR
   T1[1. Chart parity and secrets] --> T2[2. DuckLake on object storage]
   T1 --> T4[4. Hub page via Flux]
   T3[3. Empty dev environment] --> T4
+  T1 --> T5a[5a. OIDC bootstrap in the setup service]
+  T5a --> T5
   T4 --> T5[5. Login via Zitadel]
   T2 --> T6[6. Pipeline in the cloud]
   T5 --> T6
@@ -78,16 +80,18 @@ graph LR
 |:---|:---|:---|
 | [0. Secrets out of Git](tickets/00-secrets-out-of-git.md) | Nothing | No working secret in tracked files outside the chart, exposed secrets rotated, and gitleaks catches new ones. |
 | [1. Chart parity and external secrets](tickets/01-chart-parity-and-secrets.md) | Nothing | The full stack runs in kind, with secrets coming from outside the chart. |
-| [2. DuckLake on object storage](tickets/02-ducklake-object-storage.md) | 1 | DuckLake writes and reads through S3, proven locally. |
+| [2. DuckLake on object storage](tickets/02-ducklake-object-storage.md) | 1 | DuckLake writes and reads through S3 with separate reader and writer keys, proven locally. |
 | [3. A lean, empty dev environment](tickets/03-empty-dev-environment.md) | Nothing | An empty, low-cost environment on Scaleway where `kubectl` works. |
 | [4. The hub page live via Flux](tickets/04-hub-page-via-flux.md) | 1, 3 | The hub page is online with a real certificate. |
-| [5. Login via Zitadel](tickets/05-login-via-zitadel.md) | 4 | All apps are online behind the login. |
+| [5a. OIDC bootstrap in the setup service](tickets/05a-setup-service-oidc-bootstrap.md) | 1, and the #60 database work | The setup service from #60 creates the OIDC app in Compose and kind, replacing `provision-oidc.sh`. |
+| [5. Login via Zitadel](tickets/05-login-via-zitadel.md) | 4, 5a | All apps are online behind the login. |
 | [6. A pipeline in the cloud](tickets/06-pipeline-in-the-cloud.md) | 2, 5 | A Dagster run writes to the bucket, and the apps read it back. |
 | [7. On/off and reset](tickets/07-on-off-and-reset.md) | 6 | Commands and a runbook to switch the environment on and off. |
 | [8. Add an environment](tickets/08-add-an-environment.md) | 7 | A tested checklist for stage or prod. |
 
 Tickets 0, 1 and 3 can start at the same time.
 Ticket 0 handles every secret outside the Helm chart, and PR 1b of ticket 1 handles the chart itself.
+Issue #60 is leading for the setup service and issue #56 for the S3 backend, so tickets 1, 2, 5a and 5 follow their design.
 Keep in mind that ticket 3 starts costing money as soon as the cluster exists, even when it is switched off.
 
 ## Reviews and PRs

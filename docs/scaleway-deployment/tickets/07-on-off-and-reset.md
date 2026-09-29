@@ -4,6 +4,8 @@
 
 **Blocked by:** 06 (A pipeline in the cloud).
 
+**Issues:** Part of #37. The demo stays affordable through on/off, but #37 also asks for permanent URLs, which the `nip.io` interim step does not provide.
+
 **Status:** ready-for-agent
 
 - [ ] `just dev-off` scales both node pools to zero. This recipe is built in this ticket.
