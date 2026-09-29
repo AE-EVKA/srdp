@@ -68,14 +68,11 @@ just prod-use-kubeconfig   # from repo root
 - **Keep DB credentials aligned**:
   - `CHANGE_ME_POSTGRES_PASS` must be used consistently for:
     - `zitadel-db.auth.postgresPassword`
-    - `zitadel-db.primary.initdb.password`
     - `zitadel.zitadel.secretConfig.Database.Postgres.Admin.Password`
   - `CHANGE_ME_ZITADEL_DB_PASS` must be used consistently for:
     - `zitadel-db.auth.password`
     - `zitadel.zitadel.secretConfig.Database.Postgres.User.Password`
-  - `CHANGE_ME_DAGSTER_DB_PASS` must be used consistently for:
-    - the Dagster password inside `zitadel-db.primary.initdb.scripts`
-    - `dagster.postgresql.postgresqlPassword`
+  - `dagster.postgresql.postgresqlPassword` and `marquez.dbPassword` are each set once. The `srdp-setup` Job applies them to their roles on every install and upgrade.
 - **Master key format**: ZITADEL expects a 32-character master key string. Generate one, for example, with `tr -dc 'A-Za-z0-9' </dev/urandom | head -c 32`.
 - **Password complexity**: Zitadel's first human/admin password must include uppercase, lowercase, digits, and at least one symbol. For example, use `SrdpTest123!` rather than `srdpTest123`.
 

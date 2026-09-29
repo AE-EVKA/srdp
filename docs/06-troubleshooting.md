@@ -46,16 +46,10 @@ icon: lucide/life-buoy
 
 ### Dagster webserver CrashLoopBackOff with `password authentication failed for user "dagster"`
 
-- Cause: `zitadel-db.primary.initdb.scripts` only run on first PostgreSQL initialization. If you reused an old PVC, the `dagster` role/database may be missing.
-- Quick fix (keeps existing data), adjust the pod name and password for your environment:
-  - Local: `kubectl -n srdp exec -i db-postgresql-0 -- bash -lc "export PGPASSWORD='<your-postgres-password>'; psql -h 127.0.0.1 -U postgres -d postgres"`
-  - Production: `kubectl -n srdp exec -i db-postgresql-primary-0 -- bash -lc "export PGPASSWORD='<your-postgres-password>'; psql -h 127.0.0.1 -U postgres -d postgres"`
-  - Then run:
-    - `CREATE ROLE dagster LOGIN PASSWORD '<your-dagster-password>';` (or `ALTER ROLE ...` if it exists)
-    - `CREATE DATABASE dagster OWNER dagster;` (if missing)
-    - `GRANT ALL PRIVILEGES ON DATABASE dagster TO dagster;`
-  - `kubectl -n srdp rollout restart deploy/srdp-dagster-webserver deploy/srdp-dagster-daemon`
-- Clean reset option (local dev): `just local-delete` to remove PVCs, then `just local-deploy` to let init scripts recreate databases from scratch.
+- Cause: The `dagster` role's password doesn't match `dagster.postgresql.postgresqlPassword`, or the `srdp-setup` Job that creates and re-syncs it didn't run or failed.
+- Check the Job's logs with `kubectl -n srdp logs job/srdp-setup`. A missing `SETUP_PASSWORDS__<ROLE>` fails the Job before it touches Postgres.
+- Fix: rerun `helm upgrade` (or `just local-deploy`). The Job creates any missing role or database and resets every configured role's password, keeping existing data.
+- If the pods don't recover on their own, run `kubectl -n srdp rollout restart deploy/srdp-dagster-webserver deploy/srdp-dagster-daemon`.
 
 ### Updated container image not picked up after rebuild
 

@@ -267,21 +267,22 @@ Local development uses `*.srdp.localhost` with mkcert certificates:
 
 ### Databases
 
-One shared PostgreSQL instance. Each service gets its own database and user, created by `deploy/docker/initdb/01-create-databases.sql`:
+One shared PostgreSQL instance. Each service gets its own database and user, created by the `srdp-setup` service from the list in `config/setup/setup.toml` (Compose) or `setup.databases` in the chart's `values.yaml` (Kubernetes):
 
 | Database | User | Used by |
 |:---|:---|:---|
 | `zitadel` | `zitadel` | Zitadel identity provider |
 | `dagster` | `dagster` | Dagster run/event storage |
+| `marquez` | `marquez` | Marquez lineage storage |
 | `ducklake` | `postgres` | DuckLake catalog metadata (per-project schemas) |
 
-The `ducklake` database is **not** created by the init script. The DuckLake IO manager creates it on first use (`ensure_database` in `src/srdp/io/ducklake.py`), and each project gets its own metadata schema within it (for example `ducklake_sales`, see [ADR-0006](adr/0006-deployment-and-project-isolation-model.md)). All three databases live in the single PostgreSQL instance, so one backup covers them.
+Each project gets its own metadata schema within `ducklake` (for example `ducklake_sales`, see [ADR-0006](adr/0006-deployment-and-project-isolation-model.md)). All four databases live in the single PostgreSQL instance, so one backup covers them.
 
 ## Component configuration
 
 ### PostgreSQL
 
-Shared across all services. The `initdb/` directory runs SQL scripts on first boot to create per-service databases. Adding a new service database means adding a `CREATE USER` / `CREATE DATABASE` pair to the init script.
+Shared across all services. The `srdp-setup` service (`src/srdp/setup/`) creates the per-service databases and roles before any consumer starts, and it resets each role's password on every run, so it also repairs an existing volume. Adding a new service database means adding an entry to both `config/setup/setup.toml` and the chart's `setup.databases`, plus a `SETUP_PASSWORDS__<ROLE>` env var on the setup service if the entry has its own role.
 
 ### Traefik
 
@@ -330,7 +331,7 @@ deploy/
     docker-compose.yml    # Local development stack
     docker-compose.override.yml  # TLS cert mounts
     dagster-webserver.Dockerfile
-    initdb/               # PostgreSQL init scripts
+    srdp-setup.Dockerfile # Database/role bootstrap service
     certs/                # mkcert certificates (gitignored)
   kubernetes/
     srdp-chart/           # Helm umbrella chart

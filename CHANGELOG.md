@@ -4,6 +4,24 @@ All notable changes to SRDP are documented here. The format follows [Keep a Chan
 
 ## [Unreleased]
 
+### Added
+
+- `srdp-setup` service that creates every service database and role before the services that need them start, on Docker Compose and Kubernetes. It runs on every deploy, so it also repairs an existing volume that is missing a database, and it resets each role's password to the configured value. The database list lives in `config/setup/setup.toml` (Compose) and `setup.databases` in the chart's `values.yaml` (Kubernetes).
+- `MARQUEZ_DB_PASSWORD` in `deploy/docker/.env` and `marquez.dbPassword` in the chart values. Existing Compose setups need to add it to `.env`.
+
+### Changed
+
+- Marquez loads its own config through `MARQUEZ_CONFIG` and reads its database password from `MARQUEZ_DB_PASSWORD`. Its role no longer uses the literal password `marquez`.
+- Chart templates read the Postgres host from `global.postgresqlHost`, so production's `db-postgresql-primary` works without template edits.
+
+### Removed
+
+- `deploy/docker/initdb/` and the chart's `zitadel-db.primary.initdb.scripts`. The `srdp-setup` service replaces both.
+
+### Fixed
+
+- The `ducklake` database is now created at startup, before any consumer connects (#57).
+
 ## [0.3.1] - 2026-09-27
 
 ### Fixed

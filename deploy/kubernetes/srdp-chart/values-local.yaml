@@ -68,6 +68,29 @@ dagster:
           pullPolicy: Never
         dagsterApiGrpcArgs: ["-m", "etl.definitions"]
         port: 3030
+        initContainers:
+          - name: wait-for-ducklake-db
+            image: postgres:17-alpine
+            command:
+              - sh
+              - -c
+              - |
+                for i in $(seq 1 30); do
+                  if psql "postgresql://postgres@db-postgresql:5432/postgres" -tAc \
+                    "SELECT 1 FROM pg_database WHERE datname = 'ducklake'" | grep -q 1; then
+                    exit 0
+                  fi
+                  echo "waiting for the ducklake database to be created ($i/30)..."
+                  sleep 2
+                done
+                echo "ducklake database still missing after 30 attempts, giving up." >&2
+                exit 1
+            env:
+              - name: PGPASSWORD
+                valueFrom:
+                  secretKeyRef:
+                    name: db-postgresql
+                    key: postgres-password
         env:
           - name: DUCKLAKE_PG_HOST
             value: db-postgresql

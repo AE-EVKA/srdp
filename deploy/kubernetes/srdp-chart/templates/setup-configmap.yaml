@@ -1,0 +1,10 @@
+# Database list for the srdp-setup Job, mounted at /etc/srdp/setup.toml.
+# A regular resource (no hook annotation), so it exists and is up to date by
+# the time the post-install/post-upgrade Job reads it.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: srdp-setup-config
+data:
+  setup.toml: |
+{{ toToml (dict "databases" .Values.setup.databases) | indent 4 }}
