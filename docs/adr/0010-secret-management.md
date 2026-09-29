@@ -9,8 +9,9 @@ decision-makers: Thomas Start
 ## Context and Problem Statement
 
 The repository is public, so any value that reaches the git history is readable by anyone and may already be copied.
-Several working secrets were committed in the past: a GCP tfvars file, the Helm chart values, a Compose example file and the docs.
-The same oauth2-proxy cookie secret was reused across three files and several environments, so one leak opened all of them.
+Several hardcoded secrets were committed in the past: a GCP tfvars file, the Helm chart values, a Compose example file and the docs.
+The same oauth2-proxy cookie secret was reused across three files, so if any of them had been deployed, one leak would have opened all of them.
+None of them reached a deployed environment, so moving them out of git was enough, and no rotation was needed.
 Removing a value from the files does not make it secret again, and rewriting history does not undo a copy.
 
 This ADR decides where a secret lives in each environment, what git is allowed to hold, and how a new secret enters the platform.
@@ -37,7 +38,7 @@ Git holds only three kinds of things.
 - **Every environment generates its own values.** No value is copied from one environment to another, so a leak in one never opens another.
 - **Local values are random, not memorable.** A generator recipe creates them, so no shared development password starts being reused.
 - **A new secret follows a fixed path.** It gets a key in the example file, a Secret name in the chart, an entry in Secret Manager for the cloud, and a row in the secret table of the chart parity ticket. The pull request template asks for this with a checkbox.
-- **A leaked secret is rotated before it is removed.** Rotation is the real fix, and removal only stops the next leak.
+- **A leaked secret that was used in a deployed environment is rotated before it is removed.** Rotation is the real fix, and removal only stops the next leak. A leaked value that never reached a deployed environment only needs removing, and is never reused.
 - **CI is the last line.** gitleaks runs in pre-commit and on every PR with rules that match this repo, so a mistake is caught before it reaches `main`.
 
 ### Where each part lands

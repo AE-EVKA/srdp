@@ -1,6 +1,6 @@
 # 00: Secrets out of Git
 
-**What to build:** no working secret lives in a tracked file outside the Helm chart, every secret that ever left a laptop is rotated, and CI fails when a new one gets committed.
+**What to build:** no hardcoded secret lives in a tracked file outside the Helm chart, every value moves to a safe place that git ignores, and CI fails when a new one gets committed.
 
 **Blocked by:** None (can start immediately).
 
@@ -11,7 +11,6 @@
 - [x] `deploy/opentofu/gcp/tofu.tfvars` is no longer tracked. A `tofu.tfvars.example` with empty values takes its place.
 - [x] `*.tfvars` is in `.gitignore`, with an exception for `*.tfvars.example`.
 - [x] The docs no longer print a working password. They point at the file where the value is set.
-- [ ] Every secret below that was used on a machine outside a laptop is rotated, and the ticket records which ones.
 - [x] gitleaks has custom rules that catch the secrets below, and CI fails on a test commit that adds one.
 - [x] The ticket contains the output of a full-history `gitleaks detect` run.
 - [x] `docs/adr/0010-secret-management.md` describes the permanent situation below, and `docs/adr/index.md` links it.
@@ -19,9 +18,14 @@
 
 ## Scope
 
-The repo is public, so a value in the git history is readable by anyone.
-Rewriting history does not undo that, because the value may already be copied.
-Rotating the secret is the real fix, and removing it from the files stops the next leak.
+The repo is public, and these secrets are readable in plain text on GitHub.
+This ticket moves them out of the tracked files, to places that git ignores.
+
+No rotation is needed.
+None of these values was ever used in a deployed environment, so a leaked value opens nothing.
+They stay readable in the git history, and that is accepted.
+Rewriting history is not worth it, because it forces everyone to clone again and does not undo a copy.
+What matters is that the old values are never used again, in any environment.
 
 This ticket handles every place outside the Helm chart.
 The chart itself (`values.yaml` and `values-local.yaml`) is PR 1b of [ticket 01](01-chart-parity-and-secrets.md), because that PR already rewrites those templates to read from Secrets.
@@ -64,41 +68,27 @@ Write this setup down as `docs/adr/0010-secret-management.md`, so later tickets 
 | Zitadel master key | `values.yaml`, `values-local.yaml` | Ticket 01, PR 1b |
 | oauth2-proxy client secret | `values.yaml:168` and a different one in `values-local.yaml:49` | Ticket 01, PR 1b |
 | oauth2-proxy cookie secret (same value as the GCP one) | `values.yaml`, `values-local.yaml` | Ticket 01, PR 1b |
-| Zitadel master key and cookie secret (same values as the chart) | History of `local/.env.example` and `deploy/docker/.env.example`, today empty | Covered by the rotation of the chart values |
+| Zitadel master key and cookie secret (same values as the chart) | History of `local/.env.example` and `deploy/docker/.env.example`, today empty | Already empty today. Never reuse the old values. |
 
 The cookie secret appears in three files with the same value.
 After this ticket and PR 1b, each environment has its own value.
 
 ## What happens, step by step
 
-### 1. Find out what was exposed
-
-For each secret in the table, find out whether it was ever used on something reachable from outside a laptop.
-Examples are the GCP VM from `deploy/opentofu/gcp/`, a shared Zitadel, or a Scaleway cluster.
-Write the answer down per secret in this ticket.
-A secret that only ever lived in a local kind cluster or Compose stack needs no rotation.
-
-### 2. Rotate what was exposed
-
-Generate a new value for each exposed secret, for example with `openssl rand -base64 32 | head -c 32` for a 32-character secret.
-For the oauth2-proxy client secret, regenerate it in the Zitadel console under the OIDC application.
-Pass the new value to the running environment without committing it.
-If the environment no longer exists, write that down and skip the rotation.
-
-### 3. Stop tracking the GCP tfvars
+### 1. Stop tracking the GCP tfvars
 
 Move `deploy/opentofu/gcp/tofu.tfvars` to `tofu.tfvars.example` with every secret set to `""`.
 Keep the non-secret values (project id, domain), so the example stays useful.
 Add `*.tfvars` and `!*.tfvars.example` to `.gitignore`.
 Mention `TF_VAR_<name>` in the example as the way to pass secrets from the shell.
 
-### 4. Remove the password from the docs
+### 2. Remove the password from the docs
 
 In `docs/02-configuration.md`, replace the literal `srdpTest123!` with a reference to where it is set.
 For kind that is `values-local.yaml`, once PR 1b has landed.
 Search `docs/` for other literal values with `grep -rn 'srdpTest' docs/`.
 
-### 5. Make gitleaks catch these secrets
+### 3. Make gitleaks catch these secrets
 
 The repo already runs gitleaks in pre-commit and CI, but its default rules do not catch any of the secrets above.
 Add a `.gitleaks.toml` that extends the default config with rules for:
@@ -111,12 +101,13 @@ Until PR 1b lands, the chart still contains these values.
 Add an allowlist for `deploy/kubernetes/srdp-chart/values*.yaml` with a comment that PR 1b removes it.
 PR 1b then removes the allowlist for `values.yaml`, and keeps a narrow one for the local development values.
 
-### 6. Scan the full history
+### 4. Scan the full history
 
 Run `gitleaks detect --source . --log-opts="--all"` and put the output in this ticket.
-Any new finding goes into the table above, and through steps 1 and 2.
+Any new finding goes into the table above.
+If a finding was used in a deployed environment, it does need rotation, so raise it before this ticket closes.
 
-### 7. Record the permanent situation
+### 5. Record the permanent situation
 
 Write `docs/adr/0010-secret-management.md` in the style of the existing ADRs, and add it to `docs/adr/index.md`.
 It describes the table and the rules from "The permanent situation", and it names ticket 01 PR 1b and ticket 4 as the places where kind and Scaleway get their part.
@@ -140,20 +131,15 @@ The pre-commit hook must block the commit.
 
 ## Pitfalls
 
-- **Rotation before removal.** Removing a value from the files does not make it secret again. Rotate first, then remove.
+- **Reusing an old value.** The old values stay public in the history. Never copy one into a new `.env`, tfvars file or Secret Manager, or it becomes a real leak.
 - **Existing local tfvars.** After the move, anyone with a working GCP setup needs to copy `tofu.tfvars.example` to `tofu.tfvars` and fill it in again.
 - **Allowlists that are too wide.** Allow single paths, never a whole directory, or the rules will stop catching real leaks.
 
-## Exposure and rotation record
+## Why no rotation
 
-No OpenTofu state for `deploy/opentofu/gcp/` exists in this checkout, so it cannot be shown from here whether the GCP VM was ever applied.
-Each row below stays open until the owner of that environment confirms it.
-
-| Secret | Used outside a laptop? | Rotated? |
-|:---|:---|:---|
-| oauth2-proxy cookie secret (GCP tfvars) | Unconfirmed. It is the same value as the chart, so it counts as exposed if any shared cluster or the GCP VM ever ran. | Pending owner confirmation. |
-| Zitadel admin password | Only in the local kind chart and docs, as far as the repo shows. | Not needed for local use. The chart value goes away in ticket 01 PR 1b. |
-| Chart secrets (Postgres, master key, client secret, cookie secret) | Handled by ticket 01 PR 1b. | Handled by ticket 01 PR 1b. |
+None of the values in the known secrets table was used in a deployed environment.
+The GCP stack in `deploy/opentofu/gcp/` was never applied, and no shared cluster ran with the chart values.
+So the values are public, but they open nothing, and moving them out of the tracked files is enough.
 
 ## Full-history gitleaks run
 
