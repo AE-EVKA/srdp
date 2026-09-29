@@ -4,6 +4,8 @@
 
 **Blocked by:** None (can start immediately).
 
+**Issues:** Related to #43 (scoping the `ObjectStorageFullAccess` key, mesh hardening) and #40 (the mesh decision). This ticket switches the mesh off and leaves both issues open.
+
 **Status:** ready-for-agent
 
 - [ ] The blueprint has an `enable_mesh` toggle for Headscale, the mesh router and the Public Gateway.

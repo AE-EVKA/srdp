@@ -4,9 +4,12 @@
 
 **Blocked by:** 02 (DuckLake on object storage), 05 (Login via Zitadel).
 
+**Issues:** Part of #37. This ticket delivers the working demo.
+
 **Status:** ready-for-agent
 
 - [ ] The DuckLake settings in the HelmRelease point to the dev bucket, with the keys from Secret Manager.
+- [ ] The blueprint creates a second, read-only key for the lake prefix, and only Dagster gets the writer key.
 - [ ] A Dagster run materializes the cbs-example assets.
 - [ ] The run executes in its own pod on the compute pool, and that pool scales back to zero afterwards.
 - [ ] The Parquet files are visible in the bucket in the Scaleway console.
@@ -17,7 +20,7 @@
 ## PRs
 
 **PR 6: DuckLake in the cloud writing to the bucket.**
-This PR sets `DUCKLAKE_STORAGE_BACKEND=s3` in the HelmRelease, fills in the bucket details, adds the ExternalSecret for the lakehouse keys, and sends Dagster runs to the compute pool.
+This PR sets `DUCKLAKE_STORAGE_BACKEND=s3` in the HelmRelease, fills in the bucket details, extends the blueprint with a read-only lakehouse key, adds the ExternalSecrets for the reader and writer keys, and sends Dagster runs to the compute pool.
 It is a small PR, but it deploys on merge.
 After the rollout, paste screenshots of the successful run in Dagster, of the files in the bucket, and of the lineage in Marquez as a comment on the PR.
 The demo description can go in the same PR, as a short text in the ticket.
@@ -42,7 +45,14 @@ Those keys live in Secret Manager as `srdp-dev-lakehouse-access-key` and `srdp-d
 
 - Set `DUCKLAKE_STORAGE_BACKEND` to `s3` in the HelmRelease values.
 - Fill in the bucket name, the endpoint and the region.
-- Have External Secrets put the two keys in the Secret the chart has expected since ticket 2.
+- Have External Secrets put the keys in the Secrets the chart has expected since ticket 2.
+
+Ticket 2 splits the keys into a writer pair and a reader pair, following #56.
+The blueprint only creates the writer pair so far.
+Add a second IAM application with a read-only key, and scope it to the lake prefix with a bucket policy.
+Store it in Secret Manager next to the writer key, for example as `srdp-dev-lakehouse-reader-access-key` and `srdp-dev-lakehouse-reader-secret-key`.
+Check in the Scaleway documentation how a bucket policy limits an IAM application to one prefix.
+This also covers part of #43, which asks to scope the lakehouse key instead of `ObjectStorageFullAccess`.
 
 ### 2. Send runs to the compute pool
 

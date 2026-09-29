@@ -4,6 +4,8 @@
 
 **Blocked by:** 01 (Chart parity and external secrets), 03 (A lean, empty dev environment).
 
+**Issues:** Related to #38. #38 proposes the Flux overlay under `deploy/kubernetes/clusters/<env>`, while this ticket uses `deploy/gitops/clusters/scaleway/dev`. Settle the location before starting.
+
 **Status:** ready-for-agent
 
 - [ ] All SRDP images are in the hub registry.
@@ -70,8 +72,8 @@ What is missing is the connection.
 - Create a **ClusterSecretStore** with the Scaleway provider, using the ESO key.
 - Create an **ExternalSecret** for each Secret from ticket 1 that fetches the values from Secret Manager. The names in Secret Manager start with `srdp-dev-`, for example `srdp-dev-postgres-password`.
 
-The OIDC values do not really exist yet, because Zitadel is not running.
-They are filled in during ticket 5.
+Leave out the oauth2-proxy client ID and client secret.
+The setup Job writes that Secret itself in ticket 5, so an ExternalSecret for it would overwrite the Job's values.
 
 ### 3. Write the HelmRelease
 

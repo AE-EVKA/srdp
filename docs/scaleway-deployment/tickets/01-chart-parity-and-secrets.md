@@ -4,6 +4,8 @@
 
 **Blocked by:** None (can start immediately).
 
+**Issues:** Related to #60, which is leading for database creation. #60 also closes #57. This ticket only brings the chart's init script in line with it.
+
 **Status:** ready-for-agent
 
 - [ ] `just local-deploy` brings up the whole stack in kind, including streamlit.
@@ -17,7 +19,7 @@
 ## PRs
 
 **PR 1a: chart matches Compose.**
-This PR adds streamlit, makes Postgres create all four databases, fixes the Dagster module path, and sets the run coordinator to one run at a time.
+This PR adds streamlit, makes the chart's Postgres init script create all four databases, fixes the Dagster module path, and sets the run coordinator to one run at a time.
 It does not touch secrets.
 Test with `just local-deploy`, and put the output of `kubectl get pods -n srdp` and a screenshot of streamlit behind the login in the description.
 The reviewer focuses on the init script, because a mistake there only shows up on an empty database.
@@ -70,8 +72,12 @@ Also add streamlit to the `kind-load-images` recipe in the `Justfile`, so its im
 
 Postgres creates databases on first start through an init script.
 In the chart that script currently only creates the `dagster` database.
-The Compose stack creates four (`zitadel`, `dagster`, `marquez` and `ducklake`), through `deploy/docker/initdb/01-create-databases.sh`.
-Copy the same databases and users into the chart's init script.
+The chart needs four: `zitadel`, `dagster`, `marquez` and `ducklake`.
+Issue #60 is leading here.
+Its setup service replaces `deploy/docker/initdb/` in Compose and adds a repair Job in Kubernetes, but it keeps the chart's init script as the source for a fresh install.
+So this ticket only extends the chart's init script to all four databases and users, and does not touch Compose.
+Use the database and role names from the #60 setup service, so both create exactly the same thing.
+If the #60 work has landed first, check whether its PR already extended the init script.
 
 An init script only runs against an empty database.
 If you deployed before, remove the old storage with `just local-delete` before deploying again.
