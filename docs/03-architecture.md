@@ -267,7 +267,7 @@ Local development uses `*.srdp.localhost` with mkcert certificates:
 
 ### Databases
 
-One shared PostgreSQL instance. Each service gets its own database and user, created by the `srdp-setup` service from the list in `config/setup/setup.toml` (Compose) or `setup.databases` in the chart's `values.yaml` (Kubernetes):
+One shared PostgreSQL instance. Each service gets its own database and user, created by the `srdp-setup` service from the `[setup]` table in the repo-root `srdp.toml` (Compose) or `setup.databases` in the chart's `values.yaml` (Kubernetes):
 
 | Database | User | Used by |
 |:---|:---|:---|
@@ -282,7 +282,7 @@ Each project gets its own metadata schema within `ducklake` (for example `duckla
 
 ### PostgreSQL
 
-Shared across all services. The `srdp-setup` service (`src/srdp/setup/`) creates the per-service databases and roles before any consumer starts, and it resets each role's password on every run, so it also repairs an existing volume. Adding a new service database means adding an entry to both `config/setup/setup.toml` and the chart's `setup.databases`, plus a `SETUP_PASSWORDS__<ROLE>` env var on the setup service if the entry has its own role.
+Shared across all services. The `srdp-setup` service (`src/srdp/setup/`) creates the per-service databases and roles before any consumer starts, and it resets each role's password on every run, so it also repairs an existing volume. Adding a new service database means adding an entry to both the `[setup]` table in `srdp.toml` and the chart's `setup.databases`, plus a `SETUP_PASSWORDS__<ROLE>` env var on the setup service if the entry has its own role.
 
 ### Traefik
 

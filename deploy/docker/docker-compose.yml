@@ -31,8 +31,8 @@ services:
   # ---------------------------------------------
   # Setup: idempotent database/role bootstrap, runs before anything that needs
   # its own database, on a fresh volume and an existing one alike. The database
-  # list lives in config/setup/setup.toml, each role's password in
-  # SETUP_PASSWORDS__<ROLE>. See src/srdp/setup/bootstrap.py.
+  # list lives in the [setup] table of the repo-root srdp.toml, each role's
+  # password in SETUP_PASSWORDS__<ROLE>. See src/srdp/setup/bootstrap.py.
   # ---------------------------------------------
   srdp-setup:
     build:
@@ -46,7 +46,7 @@ services:
       SETUP_PASSWORDS__DAGSTER: "${DAGSTER_PG_PASSWORD}"
       SETUP_PASSWORDS__MARQUEZ: "${MARQUEZ_DB_PASSWORD}"
     volumes:
-      - "../../config/setup/setup.toml:/etc/srdp/setup.toml:ro"
+      - "../../srdp.toml:/etc/srdp/srdp.toml:ro"
     networks:
       - db
     depends_on:

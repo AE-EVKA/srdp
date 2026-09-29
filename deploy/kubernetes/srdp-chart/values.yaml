@@ -323,8 +323,9 @@ setup:
     repository: rg.nl-ams.scw.cloud/srdp-registry/srdp-setup
     tag: "v1.0"
     pullPolicy: IfNotPresent
-  # Rendered to /etc/srdp/setup.toml (templates/setup-configmap.yaml). The
-  # Compose equivalent is config/setup/setup.toml, keep them in step. Each
+  # Rendered as the [setup] table of /etc/srdp/srdp.toml
+  # (templates/setup-configmap.yaml). The Compose equivalent is the [setup]
+  # table of the repo-root srdp.toml, keep them in step. Each
   # entry with a role gets its password from a SETUP_PASSWORDS__<ROLE> env var
   # on the Job; adding a role here means adding that env var there too.
   databases:

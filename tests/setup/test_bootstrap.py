@@ -9,16 +9,20 @@ from pydantic_settings import SettingsConfigDict
 from srdp.setup.bootstrap import DatabaseTarget, SetupSettings, ensure_target
 
 CONFIG_TOML = """
-[[databases]]
+# Tables other than [setup] belong to other consumers and are ignored.
+[other]
+key = "value"
+
+[[setup.databases]]
 name = "zitadel"
 role = "zitadel"
 enabled = false
 
-[[databases]]
+[[setup.databases]]
 name = "marquez"
 role = "marquez"
 
-[[databases]]
+[[setup.databases]]
 name = "ducklake"
 """
 
@@ -48,11 +52,11 @@ class FakeCursor:
 
 @pytest.fixture
 def settings_from_toml(tmp_path: Path) -> type[SetupSettings]:
-    config = tmp_path / "setup.toml"
+    config = tmp_path / "srdp.toml"
     config.write_text(CONFIG_TOML)
 
     class TomlSettings(SetupSettings):
-        model_config = SettingsConfigDict(toml_file=config)
+        model_config = SettingsConfigDict(toml_file=config, toml_table_header=("setup",))
 
     return TomlSettings
 

@@ -6,7 +6,8 @@ All notable changes to SRDP are documented here. The format follows [Keep a Chan
 
 ### Added
 
-- `srdp-setup` service that creates every service database and role before the services that need them start, on Docker Compose and Kubernetes. It runs on every deploy, so it also repairs an existing volume that is missing a database, and it resets each role's password to the configured value. The database list lives in `config/setup/setup.toml` (Compose) and `setup.databases` in the chart's `values.yaml` (Kubernetes).
+- `srdp-setup` service that creates every service database and role before the services that need them start, on Docker Compose and Kubernetes. It runs on every deploy, so it also repairs an existing volume that is missing a database, and it resets each role's password to the configured value. The database list lives in the `[setup]` table of the new repo-root `srdp.toml` (Compose) and in `setup.databases` in the chart's `values.yaml` (Kubernetes).
+- `srdp.toml`, the start of the central platform config from #42. It holds no secrets, and each consumer reads only its own table. `[setup]` is the first table.
 - `MARQUEZ_DB_PASSWORD` in `deploy/docker/.env` and `marquez.dbPassword` in the chart values. Existing Compose setups need to add it to `.env`.
 
 ### Changed

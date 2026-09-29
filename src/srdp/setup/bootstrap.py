@@ -1,9 +1,12 @@
 """Idempotent Postgres database/role bootstrap for a fresh or existing SRDP deployment.
 
-The databases to create are declared in a TOML config file (``CONFIG_PATH``),
-mounted from ``config/setup/setup.toml`` on Compose and rendered from the
-chart's ``setup.databases`` value on Kubernetes. Role passwords come from
-``SETUP_PASSWORDS__<ROLE>`` env vars, keyed by role name.
+The databases to create are declared in the ``[setup]`` table of ``srdp.toml``
+(``CONFIG_PATH``), the central platform config (#42). On Compose that is the
+repo-root ``srdp.toml``, mounted into the container. On Kubernetes the chart
+renders the same table from its ``setup.databases`` value. Only the ``[setup]``
+table is read, so the rest of the file can grow without touching this service.
+Role passwords come from ``SETUP_PASSWORDS__<ROLE>`` env vars, keyed by role
+name, since ``srdp.toml`` never holds secrets.
 
 This is the only mechanism that creates these databases on either target.
 On Compose it runs before every service that needs Postgres, gated with
@@ -32,7 +35,7 @@ from pydantic_settings import (
 
 logger = logging.getLogger(__name__)
 
-CONFIG_PATH = Path("/etc/srdp/setup.toml")
+CONFIG_PATH = Path("/etc/srdp/srdp.toml")
 
 
 class DatabaseTarget(BaseModel):
@@ -53,6 +56,7 @@ class SetupSettings(BaseSettings):
         env_prefix="SETUP_",
         env_nested_delimiter="__",
         toml_file=CONFIG_PATH,
+        toml_table_header=("setup",),
         extra="ignore",
     )
 
