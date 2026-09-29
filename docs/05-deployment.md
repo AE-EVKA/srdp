@@ -77,7 +77,7 @@ just prod-use-kubeconfig   # from repo root
     - the Dagster password inside `zitadel-db.primary.initdb.scripts`
     - `dagster.postgresql.postgresqlPassword`
 - **Master key format**: ZITADEL expects a 32-character master key string. Generate one, for example, with `tr -dc 'A-Za-z0-9' </dev/urandom | head -c 32`.
-- **Password complexity**: Zitadel's first human/admin password must include uppercase, lowercase, digits, and at least one symbol. For example, use `SrdpTest123!` rather than `srdpTest123`.
+- **Password complexity**: Zitadel's first human/admin password must include uppercase, lowercase, digits, and at least one symbol. Generate one, for example with `openssl rand -base64 24` plus a symbol, and never reuse a value from another environment.
 
 The production values template enables PostgreSQL replication (`architecture: replication`) with a read replica. Daily backups via a CronJob are already configured in the base `values.yaml`.
 

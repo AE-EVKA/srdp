@@ -21,10 +21,16 @@ site/
 terraform.tfstate
 terraform.tfstate.backup
 kubeconfig.yaml
+# Variable files hold secrets. Only examples, and the Scaleway env files
+# (non-secret sizing, secrets are generated into Secret Manager), are tracked.
+*.tfvars
+!*.tfvars.example
+!deploy/scaleway/envs/*/terraform.tfvars
 
 # Kubernetes
 values-prod.yaml
 charts/
+kubectl
 
 # Python
 __pycache__/

@@ -4,16 +4,18 @@
 
 **Blocked by:** None (can start immediately).
 
+**Issues:** Closes #61. Related to #44, which may remove `deploy/opentofu/gcp` entirely. If #44 lands first, delete `tofu.tfvars` instead of turning it into an example.
+
 **Status:** ready-for-agent
 
-- [ ] `deploy/opentofu/gcp/tofu.tfvars` is no longer tracked. A `tofu.tfvars.example` with empty values takes its place.
-- [ ] `*.tfvars` is in `.gitignore`, with an exception for `*.tfvars.example`.
-- [ ] The docs no longer print a working password. They point at the file where the value is set.
+- [x] `deploy/opentofu/gcp/tofu.tfvars` is no longer tracked. A `tofu.tfvars.example` with empty values takes its place.
+- [x] `*.tfvars` is in `.gitignore`, with an exception for `*.tfvars.example`.
+- [x] The docs no longer print a working password. They point at the file where the value is set.
 - [ ] Every secret below that was used on a machine outside a laptop is rotated, and the ticket records which ones.
-- [ ] gitleaks has custom rules that catch the secrets below, and CI fails on a test commit that adds one.
-- [ ] The ticket contains the output of a full-history `gitleaks detect` run.
-- [ ] `docs/adr/0010-secret-management.md` describes the permanent situation below, and `docs/adr/index.md` links it.
-- [ ] A PR template asks every PR that adds a secret to follow the fixed path.
+- [x] gitleaks has custom rules that catch the secrets below, and CI fails on a test commit that adds one.
+- [x] The ticket contains the output of a full-history `gitleaks detect` run.
+- [x] `docs/adr/0010-secret-management.md` describes the permanent situation below, and `docs/adr/index.md` links it.
+- [x] A PR template asks every PR that adds a secret to follow the fixed path.
 
 ## Scope
 
@@ -62,6 +64,7 @@ Write this setup down as `docs/adr/0010-secret-management.md`, so later tickets 
 | Zitadel master key | `values.yaml`, `values-local.yaml` | Ticket 01, PR 1b |
 | oauth2-proxy client secret | `values.yaml:168` and a different one in `values-local.yaml:49` | Ticket 01, PR 1b |
 | oauth2-proxy cookie secret (same value as the GCP one) | `values.yaml`, `values-local.yaml` | Ticket 01, PR 1b |
+| Zitadel master key and cookie secret (same values as the chart) | History of `local/.env.example` and `deploy/docker/.env.example`, today empty | Covered by the rotation of the chart values |
 
 The cookie secret appears in three files with the same value.
 After this ticket and PR 1b, each environment has its own value.
@@ -140,3 +143,51 @@ The pre-commit hook must block the commit.
 - **Rotation before removal.** Removing a value from the files does not make it secret again. Rotate first, then remove.
 - **Existing local tfvars.** After the move, anyone with a working GCP setup needs to copy `tofu.tfvars.example` to `tofu.tfvars` and fill it in again.
 - **Allowlists that are too wide.** Allow single paths, never a whole directory, or the rules will stop catching real leaks.
+
+## Exposure and rotation record
+
+No OpenTofu state for `deploy/opentofu/gcp/` exists in this checkout, so it cannot be shown from here whether the GCP VM was ever applied.
+Each row below stays open until the owner of that environment confirms it.
+
+| Secret | Used outside a laptop? | Rotated? |
+|:---|:---|:---|
+| oauth2-proxy cookie secret (GCP tfvars) | Unconfirmed. It is the same value as the chart, so it counts as exposed if any shared cluster or the GCP VM ever ran. | Pending owner confirmation. |
+| Zitadel admin password | Only in the local kind chart and docs, as far as the repo shows. | Not needed for local use. The chart value goes away in ticket 01 PR 1b. |
+| Chart secrets (Postgres, master key, client secret, cookie secret) | Handled by ticket 01 PR 1b. | Handled by ticket 01 PR 1b. |
+
+## Full-history gitleaks run
+
+`gitleaks detect --source . --log-opts="--all" --redact` with gitleaks 8.30.1 and the new `.gitleaks.toml`, run on 2026-09-29.
+
+```text
+138 commits scanned.
+scanned ~45160232 bytes (45.16 MB) in 22.1s
+leaks found: 40
+```
+
+Findings grouped by rule and file:
+
+```text
+1 generic-api-key    deploy/docker/.env.example
+2 generic-api-key    local/.env.example
+1 generic-api-key    local/opentofu/providers/gcp/tofu.tfvars
+2 srdp-test-password docs/02-configuration.md
+4 srdp-test-password docs/04-deployment.md
+3 srdp-test-password docs/05-troubleshooting.md
+3 srdp-test-password kubernetes/srdp-chart/values-local.yaml
+8 srdp-test-password kubernetes/srdp-chart/values.yaml
+1 srdp-test-password local/.env.example
+1 srdp-tfvars-secret deploy/opentofu/gcp/tofu.tfvars
+3 srdp-tfvars-secret local/opentofu/providers/gcp/tofu.tfvars
+4 srdp-yaml-secret-key kubernetes/srdp-chart/values-local.yaml
+2 srdp-yaml-secret-key kubernetes/srdp-chart/values-prod.example.yaml
+5 srdp-yaml-secret-key kubernetes/srdp-chart/values.yaml
+```
+
+Every finding is one of the values in the known secrets table, or a placeholder such as `PASTE_THE_CLIENT_SECRET_YOU_COPIED_IN_PHASE_1`.
+The only new location is the old `.env.example`, which held the same master key and cookie secret as the chart.
+
+## Implementation notes
+
+- The Scaleway `deploy/scaleway/envs/*/terraform.tfvars` files stay tracked through a `.gitignore` exception. They hold only sizing and network values, and their secrets are generated into Secret Manager. The tfvars gitleaks rule still scans them.
+- gitleaks filters out obvious sequences, so the sample value `abcdefghijklmnopqrstuvwxyz123456` from the check above is not reported. Use a random 32-character value for that test instead.

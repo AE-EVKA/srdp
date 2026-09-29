@@ -134,7 +134,7 @@ OAuth2-Proxy needs an OIDC client registered in Zitadel. Zitadel creates its fir
 Open `https://auth.srdp.localhost` (Docker Compose) or `https://auth.srdp.localhost:18443` (the local `kind` cluster, see step 2 of Option B) and sign in as the first-instance admin. Zitadel derives the default admin login name from the configured `ExternalDomain`, so for the local stack it is:
 
 - Login name: `zitadel-admin@zitadel.auth.srdp.localhost`
-- Password: `srdpTest123!` for the Kubernetes chart (set in `values.yaml`). The Docker Compose stack requires `ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD` to be set in `deploy/docker/.env` (see `.env.example`), Zitadel's own complexity rule applies: uppercase, lowercase, a digit, and a symbol.
+- Password: for the Kubernetes chart, the value of `zitadel.zitadel.configmapConfig.FirstInstance.Org.Human.Password` in the chart values. Today that is `values.yaml`. After ticket 01 PR 1b it moves to the gitignored local secrets file for kind. The Docker Compose stack requires `ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD` to be set in `deploy/docker/.env` (see `.env.example`), Zitadel's own complexity rule applies: uppercase, lowercase, a digit, and a symbol.
 
 If the login name differs, check it under **Users** in the Zitadel console.
 

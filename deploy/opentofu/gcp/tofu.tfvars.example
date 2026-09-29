@@ -1,0 +1,13 @@
+# Copy to tofu.tfvars (gitignored) and fill in. Never commit the filled-in file.
+# Secrets can also come from the shell instead: export TF_VAR_<name>=..., for
+# for example export TF_VAR_oidc_cookie_secret with a value from `openssl rand -base64 32 | head -c 32`.
+gcp_project_id = "single-repo-data-platform"
+repo_url       = "https://github.com/dkapitan/srdp.git"
+acme_email     = "email@example.nl"
+domain_name    = "1.1.1.1.nip.io"
+
+# --- Secrets from Phase 1 ---
+zitadel_masterkey  = ""
+oidc_client_id     = ""
+oidc_client_secret = ""
+oidc_cookie_secret = ""
