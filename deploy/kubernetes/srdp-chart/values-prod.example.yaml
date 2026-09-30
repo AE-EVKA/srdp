@@ -266,4 +266,3 @@ dagster:
             value: ducklake
           - name: DUCKLAKE_DATA_PATH
             value: /data/ducklake
-
