@@ -83,7 +83,7 @@ graph LR
 | [2. DuckLake on object storage](tickets/02-ducklake-object-storage.md) | 1 | DuckLake writes and reads through S3 with separate reader and writer keys, proven locally. |
 | [3. A lean, empty dev environment](tickets/03-empty-dev-environment.md) | Nothing | An empty, low-cost environment on Scaleway where `kubectl` works. |
 | [4. The hub page live via Flux](tickets/04-hub-page-via-flux.md) | 1, 3 | The hub page is online with a real certificate. |
-| [5a. OIDC bootstrap in the setup service](tickets/05a-setup-service-oidc-bootstrap.md) | 1, and the #60 database work | The setup service from #60 creates the OIDC app in Compose and kind, replacing `provision-oidc.sh`. |
+| [5a. OIDC bootstrap in the setup service](tickets/05a-setup-service-oidc-bootstrap.md) | 1, and #64 | The setup service from #60 creates the OIDC app in Compose and kind, replacing `provision-oidc.sh`. |
 | [5. Login via Zitadel](tickets/05-login-via-zitadel.md) | 4, 5a | All apps are online behind the login. |
 | [6. A pipeline in the cloud](tickets/06-pipeline-in-the-cloud.md) | 2, 5 | A Dagster run writes to the bucket, and the apps read it back. |
 | [7. On/off and reset](tickets/07-on-off-and-reset.md) | 6 | Commands and a runbook to switch the environment on and off. |

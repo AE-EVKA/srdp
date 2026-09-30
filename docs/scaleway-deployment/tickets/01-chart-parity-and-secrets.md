@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately).
 
-**Issues:** Related to #60, which is leading for database creation. #60 also closes #57. This ticket only brings the chart's init script in line with it.
+**Issues:** Related to #60, which is leading for database creation. Its database bootstrap landed in #64, which also closes #57. This ticket only checks that the chart's setup Job covers all four databases.
 
 **Status:** ready-for-agent
 
@@ -19,10 +19,10 @@
 ## PRs
 
 **PR 1a: chart matches Compose.**
-This PR adds streamlit, makes the chart's Postgres init script create all four databases, fixes the Dagster module path, and sets the run coordinator to one run at a time.
+This PR adds streamlit, checks that the setup Job creates all four databases, fixes the Dagster module path, and sets the run coordinator to one run at a time.
 It does not touch secrets.
 Test with `just local-deploy`, and put the output of `kubectl get pods -n srdp` and a screenshot of streamlit behind the login in the description.
-The reviewer focuses on the init script, because a mistake there only shows up on an empty database.
+The reviewer focuses on the database list in `setup.databases`, because a missing entry only shows up as a pod that waits forever.
 
 **PR 1b: secrets and registry from outside the chart.**
 This PR removes all passwords from `values.yaml`, makes the apps read them from Secrets, and makes the registry configurable.
@@ -70,17 +70,15 @@ Also add streamlit to the `kind-load-images` recipe in the `Justfile`, so its im
 
 ### 3. Create all databases
 
-Postgres creates databases on first start through an init script.
-In the chart that script currently only creates the `dagster` database.
-The chart needs four: `zitadel`, `dagster`, `marquez` and `ducklake`.
-Issue #60 is leading here.
-Its setup service replaces `deploy/docker/initdb/` in Compose and adds a repair Job in Kubernetes, but it keeps the chart's init script as the source for a fresh install.
-So this ticket only extends the chart's init script to all four databases and users, and does not touch Compose.
-Use the database and role names from the #60 setup service, so both create exactly the same thing.
-If the #60 work has landed first, check whether its PR already extended the init script.
+The chart has no Postgres init script any more.
+Since #64 the setup Job (`templates/setup-job.yaml`) creates every database and role from `setup.databases` in `values.yaml`, on a fresh install and on an existing volume alike.
+It runs on every `helm install` and `helm upgrade`, so no `just local-delete` is needed to pick up a change.
+Each app that uses a database waits in a `wait-for-*-db` init container until its database exists.
 
-An init script only runs against an empty database.
-If you deployed before, remove the old storage with `just local-delete` before deploying again.
+The chart needs four databases: `zitadel`, `dagster`, `marquez` and `ducklake`.
+Check that `setup.databases` lists all four.
+The `zitadel` entry is disabled on purpose, because the Bitnami `zitadel-db` subchart already creates that role and database through its `auth.*` values.
+Only add an entry if a new service needs its own database.
 
 ### 4. Fix the Dagster module path
 
@@ -99,6 +97,8 @@ That is a single setting in the Dagster block of the values.
 ### 6. Secrets from outside the chart
 
 Look in `values.yaml` for every place with a password or key, for example `srdpTest123`, the Zitadel master key, the oauth2-proxy client secret and the oauth2-proxy cookie secret.
+#64 added two more: `marquez.dbPassword`, and the `SETUP_PASSWORDS__<ROLE>` environment variables of the setup Job, one per role in `setup.databases`.
+The setup Job and Marquez must read the same Secret key for the Marquez password, otherwise the Job resets the role to a value Marquez does not know.
 Make every app read that value from an existing Kubernetes Secret with a fixed name.
 Most dependency charts have an option for this called `existingSecret`.
 For our own templates you use `secretKeyRef` in the environment variables.
@@ -146,6 +146,6 @@ Search it for `srdpTest123`, `masterkey`, `clientSecret` and `cookieSecret` to c
 ## Pitfalls
 
 - **oauth2-proxy and Traefik.** The `local-deploy` recipe runs `helm upgrade` twice, because oauth2-proxy needs to know Traefik's IP address inside the cluster. Do not remove that second step.
-- **Old volumes.** After changing the init script you must delete the PVCs with `just local-delete`, otherwise the script does not run again.
+- **A pod stuck in `Init`.** A `wait-for-*-db` init container waits until the setup Job has created its database. Check the Job log with `kubectl logs job/srdp-setup -n srdp`. A missing password makes the Job fail before it creates anything.
 - **Memory.** If pods stay `Pending`, the kind node lacks memory. Give Docker Desktop more memory.
 - **Building images takes time.** `kind-load-images` rebuilds every image. If you only change the chart, `helm upgrade` is enough.

@@ -2,7 +2,7 @@
 
 **What to build:** the setup service from issue #60 creates the Zitadel OIDC app for oauth2-proxy and hands the client credentials to oauth2-proxy, in Compose and in kind. Nobody opens the Zitadel console or runs `provision-oidc.sh` any more. A fresh `just docker-up` or `just local-deploy` ends with a working login.
 
-**Blocked by:** 01 (Chart parity and external secrets), and the database bootstrap part of #60 being merged into `main` or into this integration branch.
+**Blocked by:** 01 (Chart parity and external secrets), and #64 (the database bootstrap of #60) being merged into `main` or into this integration branch.
 
 **Issues:** Part of #60 (the "OIDC credential bootstrap" item). Closes #35.
 
@@ -49,9 +49,9 @@ The password propagation and the readiness gate from #60 stay in #60, because ti
 
 ### 1. Get the #60 work
 
-The database bootstrap of #60 is not on a pushed branch yet.
-Ask the author of #60 to push it, and merge it into `feature/kubernetes-scaleway-deployment` before starting.
-It touches the same chart templates as ticket 01, so settle the order with them.
+The database bootstrap of #60 is PR #64.
+Merge it into `feature/kubernetes-scaleway-deployment` before starting, once it has landed on `main`.
+It touches the same chart templates as ticket 01, so settle the order with its author.
 
 Read the setup service code and the Job template first, because this ticket adds a step to both.
 
