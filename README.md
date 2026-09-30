@@ -10,7 +10,7 @@ The same logical architecture runs from a laptop (Docker Compose) to a single VM
 
 ## Documentation
 
-Full documentation, including the component list, architecture, and both deployment targets (Docker Compose and Kubernetes + OpenTofu), is available at **[srdp-hub.github.io/srdp](https://srdp-hub.github.io/srdp/)**.
+Full documentation, including the component list, architecture, and both deployment targets (Docker Compose and Kubernetes + OpenTofu), is available at **[docs.srdphub.com](https://docs.srdphub.com)**.
 
 **Preview locally:**
 ```bash
