@@ -3,7 +3,7 @@ title: SRDP
 icon: material/butterfly-outline
 ---
 
-# Single Repo Data Platform (SRDP)
+# Single-Repo Data Platform (SRDP)
 
 SRDP is a self-hostable data platform assembled from established open-source components and deployed from a single Git repository. It is aimed at teams that want a coherent, governable data stack without operating a large set of separately managed services. Combining a single-repository approach containing components known from homelab stacks and modern data platforms, SRDP is a serendipitous mix of best practices in one data platform. It is designed to be easy to deploy, easy to operate, and easy to extend.
 
