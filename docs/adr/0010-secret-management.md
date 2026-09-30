@@ -27,11 +27,10 @@ A secret has exactly one home per environment, and that home is never a tracked 
 | Scaleway (dev, and later stage and prod) | Scaleway Secret Manager, filled by OpenTofu or by hand | External Secrets creates the Kubernetes Secrets. |
 | OpenTofu variables | The shell, as `TF_VAR_<name>`, or a gitignored `*.tfvars` | OpenTofu reads them at plan time. |
 
-Git holds only three kinds of things.
+Git holds only two kinds of things.
 
 - An example file with empty values or `XXXX` placeholders, which documents what is needed.
 - The name of a Secret and its keys, which the chart refers to with `existingSecret` or `secretKeyRef`.
-- The gitleaks rules in `.gitleaks.toml` that guard all of the above.
 
 ### Rules
 
@@ -39,17 +38,14 @@ Git holds only three kinds of things.
 - **Local values are random, not memorable.** A generator recipe creates them, so no shared development password starts being reused.
 - **A new secret follows a fixed path.** It gets a key in the example file, a Secret name in the chart, an entry in Secret Manager for the cloud, and a row in the secret table of the chart parity ticket. The pull request template asks for this with a checkbox.
 - **A leaked secret that was used in a deployed environment is rotated before it is removed.** Rotation is the real fix, and removal only stops the next leak. A leaked value that never reached a deployed environment only needs removing, and is never reused.
-- **CI is the last line.** gitleaks runs in pre-commit and on every PR with rules that match this repo, so a mistake is caught before it reaches `main`.
 
 ### Where each part lands
 
 - Tracked files outside the Helm chart are cleaned up by ticket 00 of the Scaleway deployment plan.
-- The chart moves its values into Secrets, including the kind local Secret template and `just local-secrets`, in ticket 01 PR 1b. That PR also narrows the gitleaks allowlist for the chart values.
+- The chart moves its values into Secrets, including the kind local Secret template and `just local-secrets`, in ticket 01 PR 1b.
 - Scaleway Secret Manager and External Secrets arrive with ticket 4.
 
 ### Consequences
 
 - Good, because a leak is contained to one environment and one value.
-- Good, because gitleaks blocks the known secret shapes of this repo at commit time and in CI.
 - Bad, because every contributor with an existing local setup must regenerate their gitignored files once.
-- Bad, because the gitleaks allowlist must be kept narrow by hand. A path is added only one file at a time.

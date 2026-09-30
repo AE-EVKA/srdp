@@ -78,7 +78,7 @@ graph LR
 
 | Ticket | Blocked by | Delivers |
 |:---|:---|:---|
-| [0. Secrets out of Git](tickets/00-secrets-out-of-git.md) | Nothing | No working secret in tracked files outside the chart, exposed secrets rotated, and gitleaks catches new ones. |
+| [0. Secrets out of Git](tickets/00-secrets-out-of-git.md) | Nothing | No working secret in tracked files outside the chart, and one home per environment for every secret. |
 | [1. Chart parity and external secrets](tickets/01-chart-parity-and-secrets.md) | Nothing | The full stack runs in kind, with secrets coming from outside the chart. |
 | [2. DuckLake on object storage](tickets/02-ducklake-object-storage.md) | 1 | DuckLake writes and reads through S3 with separate reader and writer keys, proven locally. |
 | [3. A lean, empty dev environment](tickets/03-empty-dev-environment.md) | Nothing | An empty, low-cost environment on Scaleway where `kubectl` works. |

@@ -27,7 +27,6 @@ The reviewer focuses on the init script, because a mistake there only shows up o
 **PR 1b: secrets and registry from outside the chart.**
 This PR removes all passwords from `values.yaml`, makes the apps read them from Secrets, and makes the registry configurable.
 For kind a local template creates the Secrets.
-If [ticket 0](00-secrets-out-of-git.md) has landed, this PR also removes its gitleaks allowlist for `values.yaml`.
 Put a table of every secret name and key in the description, because ticket 4 builds on it.
 The reviewer uses `helm template` to check that no password remains in the rendered templates, and that kind still works.
 
