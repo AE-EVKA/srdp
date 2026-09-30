@@ -1,4 +1,4 @@
-# The Single Repo Data Platform (SRDP)
+# The Single-Repo Data Platform (SRDP)
 
 SRDP is a self-hostable data platform assembled from established open-source components (Zitadel, Traefik, Dagster, dbt, DuckDB/DuckLake, Polars, marimo, and more) and deployed from a single Git repository. It is aimed at teams that want a coherent, governable data stack without operating a large set of separately managed services.[^1]
 
