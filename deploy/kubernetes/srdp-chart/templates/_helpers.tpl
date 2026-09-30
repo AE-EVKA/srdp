@@ -26,7 +26,7 @@ wait-for-marquez-db initContainer for the same reasoning.
     - name: PGPASSWORD
       valueFrom:
         secretKeyRef:
-          name: db-postgresql
+          name: srdp-postgres
           key: postgres-password
 {{- end -}}
 
@@ -42,7 +42,7 @@ equivalent of the DUCKLAKE_* block on each app in docker-compose.yml.
 - name: DUCKLAKE_PG_PASSWORD
   valueFrom:
     secretKeyRef:
-      name: db-postgresql
+      name: srdp-postgres
       key: postgres-password
 - name: DUCKLAKE_PG_DB
   value: ducklake
@@ -64,4 +64,25 @@ same as the ducklake-data:/data/ducklake:ro mount of the Compose readers.
 - name: ducklake-data
   persistentVolumeClaim:
     claimName: ducklake-data
+{{- end -}}
+
+{{/*
+Image reference for an image this repo builds, prefixed with
+global.srdpRegistry so one value moves every SRDP image to another registry.
+Usage: {{ include "srdp.image" (list . .Values.api.image) }}
+*/}}
+{{- define "srdp.image" -}}
+{{- $root := index . 0 -}}
+{{- $image := index . 1 -}}
+{{- printf "%s/%s:%s" (trimSuffix "/" $root.Values.global.srdpRegistry) $image.repository $image.tag | quote -}}
+{{- end -}}
+
+{{/*
+Pod-level imagePullSecrets from global.imagePullSecrets, empty when unset.
+*/}}
+{{- define "srdp.imagePullSecrets" -}}
+{{- with .Values.global.imagePullSecrets }}
+imagePullSecrets:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
 {{- end -}}

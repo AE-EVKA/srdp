@@ -15,11 +15,12 @@ spec:
       labels:
         app: duckdb-ui
     spec:
+      {{- include "srdp.imagePullSecrets" . | nindent 6 }}
       initContainers:
         {{- include "srdp.waitForDucklakeDb" . | nindent 8 }}
       containers:
         - name: duckdb-ui
-          image: "{{ .Values.duckdbUi.image.repository }}:{{ .Values.duckdbUi.image.tag }}"
+          image: {{ include "srdp.image" (list . .Values.duckdbUi.image) }}
           imagePullPolicy: {{ .Values.duckdbUi.image.pullPolicy }}
           ports:
             - containerPort: 4213

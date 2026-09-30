@@ -8,10 +8,16 @@ All notable changes to SRDP are documented here. The format follows [Keep a Chan
 
 - `srdp-setup` service that creates every service database and role before the services that need them start, on Docker Compose and Kubernetes. It runs on every deploy, so it also repairs an existing volume that is missing a database, and it resets each role's password to the configured value. The database list lives in the `[setup]` table of the new repo-root `srdp.toml` (Compose) and in `setup.databases` in the chart's `values.yaml` (Kubernetes).
 - `srdp.toml`, the start of the central platform config from #42. It holds no secrets, and each consumer reads only its own table. `[setup]` is the first table.
-- `MARQUEZ_DB_PASSWORD` in `deploy/docker/.env` and `marquez.dbPassword` in the chart values. Existing Compose setups need to add it to `.env`.
+- `MARQUEZ_DB_PASSWORD` in `deploy/docker/.env`. Existing Compose setups need to add it to `.env`.
+- Streamlit in the Helm chart, behind the login on `streamlit.<domain>`.
+- A shared `ducklake-data` volume in the chart, so the apps read the Parquet files that Dagster run pods write.
+- `global.srdpRegistry` and `global.imagePullSecrets` in the chart. The `registry` variable in the `Justfile` sets the registry for every SRDP image.
 
 ### Changed
 
+- The chart holds no passwords or keys. Every consumer reads a fixed-name Secret (`srdp-postgres`, `srdp-zitadel`, `srdp-oauth2-proxy`, `srdp-dagster-postgresql`, `srdp-marquez`). In kind, `templates/local-secrets.yaml` creates them from `values-local.yaml`. Existing `values-prod.yaml` files must drop their password values and create these Secrets instead.
+- Dagster in the chart launches at most one run at a time.
+- The base Kubernetes run profile requests 512Mi with a 1536Mi limit, since a full `srdp_etl_job` run peaks at about 1Gi.
 - Marquez loads its own config through `MARQUEZ_CONFIG` and reads its database password from `MARQUEZ_DB_PASSWORD`. Its role no longer uses the literal password `marquez`.
 - Chart templates read the Postgres host from `global.postgresqlHost`, so production's `db-postgresql-primary` works without template edits.
 

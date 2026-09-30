@@ -15,11 +15,12 @@ spec:
       labels:
         app: streamlit
     spec:
+      {{- include "srdp.imagePullSecrets" . | nindent 6 }}
       initContainers:
         {{- include "srdp.waitForDucklakeDb" . | nindent 8 }}
       containers:
         - name: streamlit
-          image: "{{ .Values.streamlit.image.repository }}:{{ .Values.streamlit.image.tag }}"
+          image: {{ include "srdp.image" (list . .Values.streamlit.image) }}
           imagePullPolicy: {{ .Values.streamlit.image.pullPolicy }}
           ports:
             - containerPort: 8000

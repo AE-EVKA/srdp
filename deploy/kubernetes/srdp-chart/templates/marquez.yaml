@@ -51,7 +51,7 @@ spec:
             - name: PGPASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: db-postgresql
+                  name: srdp-postgres
                   key: postgres-password
       containers:
         - name: marquez
@@ -68,7 +68,10 @@ spec:
             - name: POSTGRES_PORT
               value: "5432"
             - name: MARQUEZ_DB_PASSWORD
-              value: {{ .Values.marquez.dbPassword | quote }}
+              valueFrom:
+                secretKeyRef:
+                  name: srdp-marquez
+                  key: db-password
             - name: SEARCH_ENABLED
               value: "false"
           volumeMounts:

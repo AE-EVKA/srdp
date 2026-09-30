@@ -155,6 +155,31 @@ The old run limit of 512Mi in `src/srdp/resources/k8s.py` got every run OOMKille
 The Bitnami default limit of 192Mi also got Postgres OOMKilled, so `zitadel-db.primary.resources` now sets a limit of 1Gi.
 Ticket 3 should therefore plan for at least 6 GiB of allocatable memory, before any headroom.
 
+### Secret names and keys
+
+Ticket 4 creates these Secrets with External Secrets.
+In kind, `templates/local-secrets.yaml` creates them from `localSecrets` in `values-local.yaml`.
+
+| Secret | Key | Read by |
+|:---|:---|:---|
+| `srdp-postgres` | `postgres-password` | zitadel-db, srdp-setup, every DuckLake client and `wait-for-*-db` init container |
+| `srdp-postgres` | `password` | zitadel-db (zitadel user) |
+| `srdp-postgres` | `replication-password` | zitadel-db, only with `architecture: replication` |
+| `srdp-zitadel` | `masterkey` | Zitadel, exactly 32 characters |
+| `srdp-zitadel` | `config-yaml` | Zitadel, a config fragment with both database passwords and `FirstInstance.Org.Human.Password` |
+| `srdp-oauth2-proxy` | `client-id`, `client-secret`, `cookie-secret` | oauth2-proxy |
+| `srdp-dagster-postgresql` | `postgresql-password` | Dagster webserver, daemon, code location, run pods and srdp-setup |
+| `srdp-marquez` | `db-password` | Marquez and srdp-setup |
+
+The two database passwords inside `config-yaml` must equal `password` and `postgres-password` in `srdp-postgres`.
+
+### Registry
+
+`global.srdpRegistry` prefixes every image the chart's own templates use.
+The Dagster code location image is a value of the Dagster subchart, which the chart cannot template.
+The `registry` variable in the `Justfile` therefore sets both `global.srdpRegistry` and that repository.
+A cloud values file sets both as well, next to `global.imagePullSecrets`.
+
 ### Findings from the kind run
 
 - The Dagster module path was already `etl.definitions`, so step 4 needed no change.

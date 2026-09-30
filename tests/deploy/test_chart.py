@@ -98,3 +98,87 @@ def test_ducklake_readers_and_writers_share_one_data_volume(local: list[Manifest
     mount_paths = [m["mountPath"] for m in container.get("volumeMounts", [])]
     assert env["DUCKLAKE_DATA_PATH"] in mount_paths
 
+
+# Development credentials that used to live in values.yaml. They may only
+# appear in the kind-only Secrets that templates/local-secrets.yaml renders.
+DEV_CREDENTIALS = (
+    "srdpTest123",
+    "51a69a373f45c60d2ae08c48bb89d03e",
+    "VQMve4Thh857uplEKmN5nlcgSedaGyYQySSDYyoMgfk4d1PS8k6zUDSdhOdo3IVW",
+    "6wdizcEbBnztdVvVoFwbSzHBfWYdBJshIOP6VlsxrDe5c1zSUQMvgDa6PfnA24BT",
+    "VcZnfAWYCgMfNjRLvM1byUaAUs2jSvSE",
+)
+
+LOCAL_SECRETS = {"srdp-postgres", "srdp-zitadel", "srdp-oauth2-proxy", "srdp-dagster-postgresql", "srdp-marquez"}
+
+
+def test_values_yaml_holds_no_credentials() -> None:
+    text = (CHART_DIR / "values.yaml").read_text()
+    for credential in DEV_CREDENTIALS:
+        assert credential not in text
+
+
+def test_default_render_holds_no_credentials_and_no_local_secrets() -> None:
+    manifests = render("values.yaml")
+    text = yaml.safe_dump_all(manifests)
+    for credential in DEV_CREDENTIALS:
+        assert credential not in text
+    secret_names = {m["metadata"]["name"] for m in manifests if m["kind"] == "Secret"}
+    assert not secret_names & LOCAL_SECRETS
+
+
+def test_local_render_holds_credentials_only_in_local_secrets(local: list[Manifest]) -> None:
+    rest = [m for m in local if not (m["kind"] == "Secret" and m["metadata"]["name"] in LOCAL_SECRETS)]
+    text = yaml.safe_dump_all(rest)
+    for credential in DEV_CREDENTIALS:
+        assert credential not in text
+    assert {m["metadata"]["name"] for m in local if m["kind"] == "Secret"} >= LOCAL_SECRETS
+
+
+def test_every_password_env_var_comes_from_a_secret(local: list[Manifest]) -> None:
+    for name, spec in pod_specs(local):
+        for container in containers(spec):
+            for env in container.get("env", []):
+                if "PASSWORD" in env["name"] or "SECRET" in env["name"]:
+                    assert "secretKeyRef" in env.get("valueFrom", {}), f"{name}/{container['name']}: {env['name']}"
+
+
+def test_setup_job_and_marquez_read_the_same_marquez_password(local: list[Manifest]) -> None:
+    def ref(spec: Manifest, var: str) -> Manifest:
+        env = {e["name"]: e for c in spec["containers"] for e in c.get("env", [])}
+        return env[var]["valueFrom"]["secretKeyRef"]
+
+    setup = find(local, "Job", "srdp-setup")["spec"]["template"]["spec"]
+    marquez = find(local, "Deployment", "marquez")["spec"]["template"]["spec"]
+    assert ref(setup, "SETUP_PASSWORDS__MARQUEZ") == ref(marquez, "MARQUEZ_DB_PASSWORD")
+
+
+def srdp_images(manifests: list[Manifest], registry: str) -> list[str]:
+    return [
+        c["image"]
+        for _, spec in pod_specs(manifests)
+        for c in containers(spec)
+        if c["image"].startswith(registry) or "srdp-registry" in c["image"]
+    ]
+
+
+def test_one_value_moves_every_srdp_image_to_another_registry() -> None:
+    registry = "registry.example.com/acme"
+    manifests = render(
+        "values.yaml",
+        "values-local.yaml",
+        set_values=(
+            f"global.srdpRegistry={registry}",
+            # The Dagster code location image is a subchart value the chart cannot
+            # template, so the Justfile's `registry` variable sets it alongside.
+            f"dagster.dagster-user-deployments.deployments[0].image.repository={registry}/srdp-etl",
+            "global.imagePullSecrets[0].name=registry-key",
+        ),
+    )
+    images = srdp_images(manifests, registry)
+    names = {image.rsplit("/", 1)[1].split(":")[0] for image in images}
+    assert names >= {"marimo", "srdp-api", "duckdb-ui", "hub", "streamlit", "srdp-setup"}
+    assert all(image.startswith(f"{registry}/") for image in images), images
+    for name in ("marimo", "api", "streamlit", "srdp-setup"):
+        spec = next(s for n, s in pod_specs(manifests) if n == name)
+        assert spec["imagePullSecrets"] == [{"name": "registry-key"}]

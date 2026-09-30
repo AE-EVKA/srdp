@@ -2,6 +2,15 @@
 global:
   domain: "LOAD_BALANCER_IP.nip.io" # CHANGE THIS to the dedicated domain
   postgresqlHost: "db-postgresql-primary"
+  # CHANGE THIS to your registry. Also set the srdp-etl repository below.
+  srdpRegistry: "rg.nl-ams.scw.cloud/srdp-registry"
+  # imagePullSecrets:
+  #   - name: registry-key
+
+# No credentials in this file. Create the Secrets listed in values.yaml
+# (srdp-postgres, srdp-zitadel, srdp-oauth2-proxy, srdp-dagster-postgresql,
+# srdp-marquez) before installing, e.g. with External Secrets. srdp-postgres
+# also needs replication-password here, because of architecture: replication.
 
 # Traefik
 traefik:
@@ -49,12 +58,6 @@ zitadel-db:
   enabled: true
   architecture: replication
 
-  auth:
-    # Keep PostgreSQL admin/user passwords aligned with:
-    # - zitadel.zitadel.secretConfig.Database.Postgres
-    postgresPassword: "CHANGE_ME_POSTGRES_PASS"
-    password: "CHANGE_ME_ZITADEL_DB_PASS"
-
   # No primary.initdb.scripts: the srdp-setup Job creates the dagster,
   # marquez and ducklake databases (setup.databases in values.yaml).
 
@@ -75,14 +78,6 @@ zitadel-db:
 # Zitadel auth service
 zitadel:
   zitadel:
-    masterkey: "CHANGE_ME_ZITADEL_MASTERKEY_32CHARS" # CHANGE THIS, must be 32 characters
-    secretConfig:
-      Database:
-        Postgres:
-          User:
-            Password: "CHANGE_ME_ZITADEL_DB_PASS" # CHANGE THIS
-          Admin:
-            Password: "CHANGE_ME_POSTGRES_PASS" # CHANGE THIS
     configmapConfig:
       ExternalDomain: "auth.LOAD_BALANCER_IP.nip.io" # CHANGE THIS (must match global.domain)
       ExternalPort: 443
@@ -108,7 +103,6 @@ zitadel:
             Email:
               Address: zitadel-admin@auth.LOAD_BALANCER_IP.nip.io
               Verified: true
-            Password: "CHANGE_ME_ZITADEL_ADMIN_PASS" # CHANGE THIS
             PasswordChangeRequired: false
     dbSslCaCrtSecret: postgres-cert
     dbSslAdminCrtSecret: postgres-cert
@@ -153,12 +147,6 @@ zitadel:
 
 # O-Auth2 Proxy
 oauth2-proxy:
-  config:
-    clientID: "XXXXXXXXXXXXXXXXXX" # CHANGE THIS
-    clientSecret: "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX" # CHANGE THIS
-    # Generate a random string: python3 -c 'import os,base64; print(base64.b64encode(os.urandom(16)).decode())'
-    cookieSecret: "CHANGE_ME_OAUTH_COOKIE_SECRET_32" # Must be 32 characters
-
   extraArgs:
     cookie-domain: ".LOAD_BALANCER_IP.nip.io" # CHANGE THIS
     whitelist-domain: ".LOAD_BALANCER_IP.nip.io" # CHANGE THIS
@@ -208,7 +196,7 @@ dagster:
           - name: PGPASSWORD
             valueFrom:
               secretKeyRef:
-                name: db-postgresql
+                name: srdp-postgres
                 key: postgres-password
   dagsterDaemon:
     extraPrependedInitContainers: *wait-for-dagster-db-prod
@@ -216,13 +204,12 @@ dagster:
     enabled: false
     postgresqlHost: db-postgresql-primary
     postgresqlUsername: dagster
-    postgresqlPassword: "CHANGE_ME_DAGSTER_DB_PASS"
     postgresqlDatabase: dagster
   dagster-user-deployments:
     deployments:
       - name: srdp-etl
         image:
-          repository: "rg.nl-ams.scw.cloud/srdp-registry/srdp-etl"
+          repository: "rg.nl-ams.scw.cloud/srdp-registry/srdp-etl" # CHANGE THIS with global.srdpRegistry
           tag: "v1.0"
           pullPolicy: IfNotPresent
         dagsterApiGrpcArgs:
@@ -250,7 +237,7 @@ dagster:
               - name: PGPASSWORD
                 valueFrom:
                   secretKeyRef:
-                    name: db-postgresql
+                    name: srdp-postgres
                     key: postgres-password
         # See values.yaml: shared DuckLake volume, copied into run pods.
         # A multi-node cluster needs ducklakeData.accessMode: ReadWriteMany.
@@ -269,15 +256,10 @@ dagster:
           - name: DUCKLAKE_PG_PASSWORD
             valueFrom:
               secretKeyRef:
-                name: db-postgresql
+                name: srdp-postgres
                 key: postgres-password
           - name: DUCKLAKE_PG_DB
             value: ducklake
           - name: DUCKLAKE_DATA_PATH
             value: /data/ducklake
 
-# Marquez (OpenLineage backend)
-marquez:
-  # Read by both Marquez and the srdp-setup Job, which (re)sets the role's
-  # password to this on every install/upgrade.
-  dbPassword: "CHANGE_ME_MARQUEZ_DB_PASS"

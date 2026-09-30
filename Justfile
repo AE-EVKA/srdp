@@ -2,6 +2,10 @@ set shell := ["bash", "-c"]
 set dotenv-load := false
 
 namespace := "srdp"
+# Registry prefix of every image this repo builds. local-deploy passes it to the
+# chart as global.srdpRegistry and as the Dagster code location's repository.
+registry := "rg.nl-ams.scw.cloud/srdp-registry"
+registry_args := "--set-string 'global.srdpRegistry=" + registry + "' --set-string 'dagster.dagster-user-deployments.deployments[0].image.repository=" + registry + "/srdp-etl'"
 kubeconfig := justfile_directory() + "/deploy/opentofu/scaleway/kubeconfig.yaml"
 
 default: help
@@ -34,21 +38,21 @@ kind-down:
 
 # Build all images and load them into kind
 kind-load-images: kind-up
-	docker build -t rg.nl-ams.scw.cloud/srdp-registry/marimo:v1.0 -f projects/cbs-example/notebooks/Dockerfile .
-	docker build -t rg.nl-ams.scw.cloud/srdp-registry/srdp-etl:v1.0 -f projects/cbs-example/Dockerfile .
-	docker build -t rg.nl-ams.scw.cloud/srdp-registry/srdp-api:v1.0 -f projects/cbs-example/api/Dockerfile .
-	docker build -t rg.nl-ams.scw.cloud/srdp-registry/duckdb-ui:v1.0 -f services/duckdb-ui/Dockerfile .
-	docker build -t rg.nl-ams.scw.cloud/srdp-registry/hub:v1.0 services/hub
-	docker build -t rg.nl-ams.scw.cloud/srdp-registry/streamlit:v1.0 -f projects/cbs-example/streamlit/Dockerfile .
-	docker build -t rg.nl-ams.scw.cloud/srdp-registry/srdp-setup:v1.0 -f deploy/docker/srdp-setup.Dockerfile .
+	docker build -t {{registry}}/marimo:v1.0 -f projects/cbs-example/notebooks/Dockerfile .
+	docker build -t {{registry}}/srdp-etl:v1.0 -f projects/cbs-example/Dockerfile .
+	docker build -t {{registry}}/srdp-api:v1.0 -f projects/cbs-example/api/Dockerfile .
+	docker build -t {{registry}}/duckdb-ui:v1.0 -f services/duckdb-ui/Dockerfile .
+	docker build -t {{registry}}/hub:v1.0 services/hub
+	docker build -t {{registry}}/streamlit:v1.0 -f projects/cbs-example/streamlit/Dockerfile .
+	docker build -t {{registry}}/srdp-setup:v1.0 -f deploy/docker/srdp-setup.Dockerfile .
 	kind load docker-image \
-		rg.nl-ams.scw.cloud/srdp-registry/marimo:v1.0 \
-		rg.nl-ams.scw.cloud/srdp-registry/srdp-etl:v1.0 \
-		rg.nl-ams.scw.cloud/srdp-registry/srdp-api:v1.0 \
-		rg.nl-ams.scw.cloud/srdp-registry/duckdb-ui:v1.0 \
-		rg.nl-ams.scw.cloud/srdp-registry/hub:v1.0 \
-		rg.nl-ams.scw.cloud/srdp-registry/srdp-setup:v1.0 \
-		rg.nl-ams.scw.cloud/srdp-registry/streamlit:v1.0 \
+		{{registry}}/marimo:v1.0 \
+		{{registry}}/srdp-etl:v1.0 \
+		{{registry}}/srdp-api:v1.0 \
+		{{registry}}/duckdb-ui:v1.0 \
+		{{registry}}/hub:v1.0 \
+		{{registry}}/srdp-setup:v1.0 \
+		{{registry}}/streamlit:v1.0 \
 		--name srdp
 
 # Generate local TLS certs for the kind stack
@@ -61,15 +65,18 @@ local-tls: kind-up
 # Deploy the full stack to local kind via Helm
 local-deploy: kind-load-images
 	cd deploy/kubernetes/srdp-chart && helm dependency update
-	cd deploy/kubernetes && helm upgrade --install srdp srdp-chart --namespace {{namespace}} --create-namespace -f srdp-chart/values.yaml -f srdp-chart/values-local.yaml
+	cd deploy/kubernetes && helm upgrade --install srdp srdp-chart --namespace {{namespace}} --create-namespace -f srdp-chart/values.yaml -f srdp-chart/values-local.yaml {{registry_args}}
 	@echo "Reading Traefik's assigned ClusterIP to wire it into oauth2-proxy's hostAliases..."
 	@TRAEFIK_IP=$(kubectl get svc srdp-traefik -n {{namespace}} -o jsonpath='{.spec.clusterIP}'); \
 	echo "Traefik ClusterIP: $TRAEFIK_IP"; \
-	cd deploy/kubernetes && helm upgrade srdp srdp-chart --namespace {{namespace}} -f srdp-chart/values.yaml -f srdp-chart/values-local.yaml --set-string "oauth2-proxy.hostAliases[0].ip=$TRAEFIK_IP"
+	cd deploy/kubernetes && helm upgrade srdp srdp-chart --namespace {{namespace}} -f srdp-chart/values.yaml -f srdp-chart/values-local.yaml {{registry_args}} --set-string "oauth2-proxy.hostAliases[0].ip=$TRAEFIK_IP"
 
 # Uninstall the local Helm release and its PVCs
 local-delete:
 	helm uninstall srdp -n {{namespace}} || true
+	# Dagster run Jobs are created by the run launcher, not by Helm, and their
+	# pods keep the ducklake-data PVC in Terminating until they are gone.
+	kubectl delete jobs --all -n {{namespace}} || true
 	kubectl delete pvc --all -n {{namespace}} || true
 
 # Start the Docker Compose stack (local dev). Attached by default; pass -d to detach.

@@ -53,26 +53,23 @@ just prod-use-kubeconfig   # from repo root
 ## 5) Prepare production Helm values
 
 - Copy `deploy/kubernetes/srdp-chart/values-prod.example.yaml` to `deploy/kubernetes/srdp-chart/values-prod.yaml` if you are starting fresh.
-- Fill in:
-  - `global.domain` and `oauth2-proxy` cookie/whitelist domains (use a real domain or `<lb-ip>.nip.io` once you know the load balancer IP).
-  - Zitadel master key, admin/user DB passwords, Dagster DB password, and OAuth2 client credentials.
-  - ACME email for Traefik (Let's Encrypt).
-  - Replace these placeholder values in `values-prod.yaml`:
-    - `CHANGE_ME_POSTGRES_PASS`
-    - `CHANGE_ME_ZITADEL_DB_PASS`
-    - `CHANGE_ME_DAGSTER_DB_PASS`
-    - `CHANGE_ME_ZITADEL_MASTERKEY_32CHARS`
-    - `CHANGE_ME_ZITADEL_ADMIN_PASS`
-    - `CHANGE_ME_OAUTH_COOKIE_SECRET_32`
-    - `XXXXXXXXXXXXXXXXXX` and `XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX` for the OAuth2 client ID/secret
-- **Keep DB credentials aligned**:
-  - `CHANGE_ME_POSTGRES_PASS` must be used consistently for:
-    - `zitadel-db.auth.postgresPassword`
-    - `zitadel.zitadel.secretConfig.Database.Postgres.Admin.Password`
-  - `CHANGE_ME_ZITADEL_DB_PASS` must be used consistently for:
-    - `zitadel-db.auth.password`
-    - `zitadel.zitadel.secretConfig.Database.Postgres.User.Password`
-  - `dagster.postgresql.postgresqlPassword` and `marquez.dbPassword` are each set once. The `srdp-setup` Job applies them to their roles on every install and upgrade.
+- Fill in `global.domain`, the `oauth2-proxy` cookie and whitelist domains, the ACME email for Traefik, and `global.srdpRegistry` together with the `srdp-etl` repository.
+  Use a real domain or `<lb-ip>.nip.io` once you know the load balancer IP.
+- The values files hold no passwords or keys.
+  Before you install, create these Secrets in the `srdp` namespace, for example with External Secrets.
+  Every consumer reads them by these fixed names.
+
+  | Secret | Keys |
+  |:---|:---|
+  | `srdp-postgres` | `postgres-password` (superuser), `password` (zitadel user), `replication-password` (replication only) |
+  | `srdp-zitadel` | `masterkey`, `config-yaml` |
+  | `srdp-oauth2-proxy` | `client-id`, `client-secret`, `cookie-secret` |
+  | `srdp-dagster-postgresql` | `postgresql-password` |
+  | `srdp-marquez` | `db-password` |
+
+- `config-yaml` in `srdp-zitadel` is a Zitadel config fragment with `Database.Postgres.User.Password`, `Database.Postgres.Admin.Password` and `FirstInstance.Org.Human.Password`.
+  The two database passwords must match `password` and `postgres-password` in `srdp-postgres`.
+- The `srdp-setup` Job reads `srdp-dagster-postgresql` and `srdp-marquez` too, and applies them to their roles on every install and upgrade.
 - **Master key format**: ZITADEL expects a 32-character master key string. Generate one, for example, with `tr -dc 'A-Za-z0-9' </dev/urandom | head -c 32`.
 - **Password complexity**: Zitadel's first human/admin password must include uppercase, lowercase, digits, and at least one symbol. For example, use `SrdpTest123!` rather than `srdpTest123`.
 
