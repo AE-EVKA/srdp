@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately).
 
-**Issues:** Related to #60, which is leading for database creation. Its database bootstrap landed in #64, which also closes #57. This ticket only checks that the chart's setup Job covers all four databases.
+**Issues:** Closes #66. Related to #60, which is leading for database creation. Its database bootstrap landed in #64, which also closes #57. This ticket only checks that the chart's setup Job covers all four databases.
 
 **Status:** ready-for-agent
 
