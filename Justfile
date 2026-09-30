@@ -39,6 +39,7 @@ kind-load-images: kind-up
 	docker build -t rg.nl-ams.scw.cloud/srdp-registry/srdp-api:v1.0 -f projects/cbs-example/api/Dockerfile .
 	docker build -t rg.nl-ams.scw.cloud/srdp-registry/duckdb-ui:v1.0 -f services/duckdb-ui/Dockerfile .
 	docker build -t rg.nl-ams.scw.cloud/srdp-registry/hub:v1.0 services/hub
+	docker build -t rg.nl-ams.scw.cloud/srdp-registry/streamlit:v1.0 -f projects/cbs-example/streamlit/Dockerfile .
 	docker build -t rg.nl-ams.scw.cloud/srdp-registry/srdp-setup:v1.0 -f deploy/docker/srdp-setup.Dockerfile .
 	kind load docker-image \
 		rg.nl-ams.scw.cloud/srdp-registry/marimo:v1.0 \
@@ -47,6 +48,7 @@ kind-load-images: kind-up
 		rg.nl-ams.scw.cloud/srdp-registry/duckdb-ui:v1.0 \
 		rg.nl-ams.scw.cloud/srdp-registry/hub:v1.0 \
 		rg.nl-ams.scw.cloud/srdp-registry/srdp-setup:v1.0 \
+		rg.nl-ams.scw.cloud/srdp-registry/streamlit:v1.0 \
 		--name srdp
 
 # Generate local TLS certs for the kind stack

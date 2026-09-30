@@ -122,6 +122,49 @@ Once everything runs, record how much memory each pod uses.
 Without a metrics server in kind you can use `docker stats` on the kind node, or temporarily set low `resources` limits per pod and see what crashes.
 Ticket 3 uses this number to choose the node size in the cloud.
 
+## Results
+
+### Memory usage per pod
+
+Measured on 2026-09-30 in kind with `crictl stats` on the node, after a successful `srdp_etl_job` run.
+The values are the working set in MiB, with the stack idle.
+
+| Pod | Memory (MiB) |
+|:---|---:|
+| dagster-daemon | 1167 |
+| dagster-webserver | 992 |
+| dagster-webserver-read-only | 971 |
+| marquez | 549 |
+| dagster-user-deployments-srdp-etl | 239 |
+| db-postgresql | 121 |
+| marquez-web | 113 |
+| duckdb-ui | 113 |
+| api | 101 |
+| zitadel | 95 |
+| zitadel-login | 85 |
+| marimo | 63 |
+| streamlit | 57 |
+| traefik | 42 |
+| oauth2-proxy | 7 |
+| hub | 5 |
+| **Total** | **4718** |
+
+A Dagster run pod comes on top of this total.
+A full `srdp_etl_job` run peaks at about 1030 MiB.
+The old run limit of 512Mi in `src/srdp/resources/k8s.py` got every run OOMKilled, so the base profile now requests 512Mi with a limit of 1536Mi.
+The Bitnami default limit of 192Mi also got Postgres OOMKilled, so `zitadel-db.primary.resources` now sets a limit of 1Gi.
+Ticket 3 should therefore plan for at least 6 GiB of allocatable memory, before any headroom.
+
+### Findings from the kind run
+
+- The Dagster module path was already `etl.definitions`, so step 4 needed no change.
+- `setup.databases` already lists all four databases, with `zitadel` disabled on purpose.
+- A run pod writes its Parquet files inside its own container unless it shares a volume with the apps.
+  The chart now has a `ducklake-data` volume, mounted read-write in the code location and its run pods and read-only in the apps.
+  It is `ReadWriteOnce`, which works on a single kind node. A multi-node cluster needs `ReadWriteMany` or object storage.
+- The login redirect points at `https://auth.srdp.localhost` without the `:18443` port, because Zitadel has `ExternalPort: 443`.
+  That behaviour predates this ticket.
+
 ## What you need to know or install first
 
 - `kind`, `kubectl`, `helm` and `mkcert`.

@@ -91,6 +91,16 @@ dagster:
                   secretKeyRef:
                     name: db-postgresql
                     key: postgres-password
+        # Writer side of the shared DuckLake volume (templates/ducklake-data-pvc.yaml).
+        # includeConfigInLaunchedRuns (on by default) copies env and volumes
+        # into every K8sRunLauncher run pod, which is where assets materialize.
+        volumes:
+          - name: ducklake-data
+            persistentVolumeClaim:
+              claimName: ducklake-data
+        volumeMounts:
+          - name: ducklake-data
+            mountPath: /data/ducklake
         env:
           - name: DUCKLAKE_PG_HOST
             value: db-postgresql
@@ -103,3 +113,5 @@ dagster:
                 key: postgres-password
           - name: DUCKLAKE_PG_DB
             value: ducklake
+          - name: DUCKLAKE_DATA_PATH
+            value: /data/ducklake

@@ -8,11 +8,13 @@ Import these in any project's definitions.py and apply them as job tags:
     )
 """
 
+# A full srdp_etl_job run (multiprocess executor, dbt, DuckDB) peaks at about
+# 1Gi in kind, so 512Mi got it OOMKilled. The limit leaves headroom above that.
 BASE_RUN_K8S_CONFIG = {
     "container_config": {
         "resources": {
-            "requests": {"cpu": "250m", "memory": "256Mi"},
-            "limits": {"cpu": "500m", "memory": "512Mi"},
+            "requests": {"cpu": "250m", "memory": "512Mi"},
+            "limits": {"cpu": "1", "memory": "1536Mi"},
         }
     },
     "job_metadata": {

@@ -1,26 +1,26 @@
-{{- if .Values.marimo.enabled }}
+{{- if .Values.streamlit.enabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: marimo
+  name: streamlit
   labels:
-    app: marimo
+    app: streamlit
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: marimo
+      app: streamlit
   template:
     metadata:
       labels:
-        app: marimo
+        app: streamlit
     spec:
       initContainers:
         {{- include "srdp.waitForDucklakeDb" . | nindent 8 }}
       containers:
-        - name: marimo
-          image: "{{ .Values.marimo.image.repository }}:{{ .Values.marimo.image.tag }}"
-          imagePullPolicy: {{ .Values.marimo.image.pullPolicy }}
+        - name: streamlit
+          image: "{{ .Values.streamlit.image.repository }}:{{ .Values.streamlit.image.tag }}"
+          imagePullPolicy: {{ .Values.streamlit.image.pullPolicy }}
           ports:
             - containerPort: 8000
           env:
@@ -33,10 +33,10 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: marimo
+  name: streamlit
 spec:
   selector:
-    app: marimo
+    app: streamlit
   ports:
     - protocol: TCP
       port: 80

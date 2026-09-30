@@ -29,3 +29,39 @@ wait-for-marquez-db initContainer for the same reasoning.
           name: db-postgresql
           key: postgres-password
 {{- end -}}
+
+{{/*
+DuckLake connection env for the apps that read the catalog, the Kubernetes
+equivalent of the DUCKLAKE_* block on each app in docker-compose.yml.
+*/}}
+{{- define "srdp.ducklakeEnv" -}}
+- name: DUCKLAKE_PG_HOST
+  value: {{ .Values.global.postgresqlHost | quote }}
+- name: DUCKLAKE_PG_USER
+  value: postgres
+- name: DUCKLAKE_PG_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: db-postgresql
+      key: postgres-password
+- name: DUCKLAKE_PG_DB
+  value: ducklake
+- name: DUCKLAKE_DATA_PATH
+  value: {{ .Values.ducklakeData.mountPath | quote }}
+{{- end -}}
+
+{{/*
+Read-only mount of the shared DuckLake data volume (templates/ducklake-data-pvc.yaml),
+same as the ducklake-data:/data/ducklake:ro mount of the Compose readers.
+*/}}
+{{- define "srdp.ducklakeVolumeMount" -}}
+- name: ducklake-data
+  mountPath: {{ .Values.ducklakeData.mountPath | quote }}
+  readOnly: true
+{{- end -}}
+
+{{- define "srdp.ducklakeVolume" -}}
+- name: ducklake-data
+  persistentVolumeClaim:
+    claimName: ducklake-data
+{{- end -}}

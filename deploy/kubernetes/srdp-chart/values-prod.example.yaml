@@ -252,6 +252,15 @@ dagster:
                   secretKeyRef:
                     name: db-postgresql
                     key: postgres-password
+        # See values.yaml: shared DuckLake volume, copied into run pods.
+        # A multi-node cluster needs ducklakeData.accessMode: ReadWriteMany.
+        volumes:
+          - name: ducklake-data
+            persistentVolumeClaim:
+              claimName: ducklake-data
+        volumeMounts:
+          - name: ducklake-data
+            mountPath: /data/ducklake
         env:
           - name: DUCKLAKE_PG_HOST
             value: db-postgresql-primary
@@ -264,6 +273,8 @@ dagster:
                 key: postgres-password
           - name: DUCKLAKE_PG_DB
             value: ducklake
+          - name: DUCKLAKE_DATA_PATH
+            value: /data/ducklake
 
 # Marquez (OpenLineage backend)
 marquez:
