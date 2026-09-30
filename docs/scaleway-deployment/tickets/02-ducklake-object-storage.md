@@ -4,7 +4,7 @@
 
 **Blocked by:** 01 (Chart parity and external secrets).
 
-**Issues:** Closes #56, which is leading for the design. It asks for non-AWS endpoints as a first-class case, separate read-only and writer credentials, and one implementation instead of three per consumer.
+**Issues:** #56, which is leading for the design. It asks for non-AWS endpoints as a first-class case, separate read-only and writer credentials, and one implementation instead of three per consumer. PR 2a references it with `Part of #56`. Only PR 2b says `Closes #56`, because the issue is solved once the consumers use the backend.
 
 **Status:** ready-for-agent
 
@@ -15,21 +15,24 @@
 - [ ] Unit tests cover building the S3 path and choosing between the backends.
 - [ ] The query-serving apps hold only a read-only key, scoped to the lake prefix. Only the Dagster code server and dbt hold the writer key.
 - [ ] A write from duckdb-ui to the bucket fails with an access error.
-- [ ] The DuckDB secret, the dbt profile and any dlt pipeline all get their S3 settings from the backend, not from their own copy.
+- [ ] The DuckDB secret and the dbt connection get their S3 settings and data path from the backend, not from their own copy. `profiles.yml` contains no endpoint, URL style, key or bucket.
+- [ ] The dlt helper is covered by a unit test. This repo has no dlt pipeline, so the helper is used downstream, and the PR description says so.
 - [ ] The correct DuckDB settings for Scaleway Object Storage are recorded in this ticket, checked against the official documentation.
 
 ## PRs
 
 **PR 2a: `S3StorageBackend` with tests.**
-This PR contains only Python code in `src/srdp`, namely the new backend, the extra settings with a separate reader and writer key, the function that selects the backend, and unit tests.
+This PR contains only Python code in `src/srdp`, namely the new backend, the extra settings with a separate reader and writer key, the function that selects the backend, the dlt helper, the dbt-duckdb plugin from step 4, and unit tests.
 The default stays `local`, so nothing changes after the merge.
+The description says `Part of #56`, so merging 2a does not close the issue.
 Put the verified DuckDB settings for Scaleway in the description, with a link to the documentation.
 The reviewer focuses on the naming of the settings, because those names come back in Compose, the chart and Secret Manager.
 This PR can start right away, in parallel with ticket 1.
 
 **PR 2b: wire Compose, MinIO, dbt and the chart.**
-This PR passes the new variables to the five DuckLake consumers in Compose and in the chart, adds MinIO as an optional service with a reader and a writer user, and updates the dbt profile.
+This PR passes the new variables to the five DuckLake consumers in Compose and in the chart, adds MinIO as an optional service with a reader and a writer user, and switches the dbt profile to the plugin from 2a.
 The writers get the writer key, and the four apps get the reader key.
+The description says `Closes #56`.
 Test in Compose and in kind with `DUCKLAKE_STORAGE_BACKEND=s3`, and put a screenshot of the MinIO bucket in the description.
 The reviewer checks that the stack works unchanged with `local`, and that no read-only app has the writer key in its environment.
 2b is blocked by 1b and 2a.
@@ -83,7 +86,8 @@ It does two things.
 - Prepare the DuckDB connection by loading `httpfs` and creating the S3 secret, with the reader or the writer key depending on the role of the connection.
 
 Treat `ENDPOINT` and `URL_STYLE` as required settings, as #56 asks, and do not fall back to AWS defaults.
-Add small helpers that render the same settings for the dbt profile and for dlt, so no consumer builds its own.
+Add a small helper that renders the same settings for dlt, so a downstream dlt pipeline does not build its own.
+dbt gets its settings through a plugin instead of a helper, see step 4.
 
 ### 3. Extend the settings
 
@@ -91,12 +95,24 @@ Add small helpers that render the same settings for the dbt profile and for dlt,
 Add a `storage_backend` choice (default `local`) and the fields for bucket, prefix, endpoint, URL style and region.
 Add two key pairs, a writer pair and a reader pair, and a setting for which role the process has.
 A process with the reader role must not need the writer key to start.
-Replace the spot that always creates a `LocalStorageBackend` with a small function that picks the right backend based on `storage_backend`.
+Two places always create a `LocalStorageBackend`, in `create_connection()` and in `setup_ducklake()`.
+Replace both with a small function that picks the right backend based on `storage_backend`.
 
 ### 4. Connect dbt
 
 dbt writes to DuckLake through its own configuration in `projects/cbs-example/dbt/profiles.yml`.
-Make that file read the same `DUCKLAKE_*` variables, so dbt writes to the same bucket as Dagster.
+If that file read the S3 variables itself with `env_var()`, the endpoint, URL style and keys would be handled a second time in YAML, which is the duplication #56 wants to remove.
+So dbt asks the backend instead, through a dbt-duckdb plugin.
+
+A dbt-duckdb plugin is a Python module with a class named `Plugin` that subclasses `dbt.adapters.duckdb.plugins.BasePlugin`.
+Its `configure_connection(conn)` hook runs on every new connection, after the extensions and before the `attach:` entries from the profile.
+Put the plugin in `src/srdp` and let that hook select the backend and call `configure_duckdb(conn)` on it.
+Reference it in the profile under `plugins:` by its module path.
+
+The `data_path` in the profile must also come from the backend, because for S3 it is `s3://<bucket>/<prefix>/`.
+The simplest way is for the plugin to run the same `ATTACH` that `create_connection()` runs, and to drop the `attach:` block from the profile.
+Check that dbt still resolves the `ducklake` database when the plugin attaches it.
+After this change `profiles.yml` contains no endpoint, URL style, key, bucket or data path.
 
 ### 5. Connect Compose and the chart
 
@@ -114,7 +130,8 @@ Pass the variables to the same five apps, and read the keys from a Secret, as in
 
 ### 6. Tests
 
-Write unit tests for building the S3 path, for choosing between the backends, and for picking the reader or writer key by role.
+Write unit tests for building the S3 path, for choosing between the backends, for picking the reader or writer key by role, and for the output of the dlt helper.
+Test that the dbt plugin creates the S3 secret on a connection when `storage_backend` is `s3`.
 Follow the existing patterns in `tests/`.
 
 ## What you need to know or install first
