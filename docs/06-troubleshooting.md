@@ -47,9 +47,12 @@ icon: lucide/life-buoy
 ### Dagster webserver CrashLoopBackOff with `password authentication failed for user "dagster"`
 
 - Cause: The `dagster` role's password doesn't match `dagster.postgresql.postgresqlPassword`, or the `srdp-setup` Job that creates and re-syncs it didn't run or failed.
-- Check the Job's logs with `kubectl -n srdp logs job/srdp-setup`. A missing `SETUP_PASSWORDS__<ROLE>` fails the Job before it touches Postgres.
-- Fix: rerun `helm upgrade` (or `just local-deploy`). The Job creates any missing role or database and resets every configured role's password, keeping existing data.
-- If the pods don't recover on their own, run `kubectl -n srdp rollout restart deploy/srdp-dagster-webserver deploy/srdp-dagster-daemon`.
+- Check the Job's logs with `kubectl -n srdp logs job/srdp-setup`.
+  The Job is deleted when it succeeds, so it only has logs after a failed run.
+  A missing `SETUP_PASSWORDS__<ROLE>` fails the Job before it touches Postgres.
+- Fix: rerun `helm upgrade` (or `just local-deploy`).
+  The Job creates any missing role or database and resets every configured role's password, keeping existing data.
+- If the pods don't recover on their own, run `kubectl -n srdp rollout restart deploy/srdp-dagster-webserver deploy/srdp-dagster-webserver-read-only deploy/srdp-dagster-daemon deploy/srdp-dagster-user-deployments-srdp-etl`.
 
 ### Updated container image not picked up after rebuild
 

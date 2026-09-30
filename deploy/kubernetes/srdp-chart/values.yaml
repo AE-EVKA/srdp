@@ -1,10 +1,7 @@
 # Global settings
 global:
   domain: "srdp.localhost"
-  # Referenced by templates that connect to Postgres directly (marquez.yaml,
-  # api.yaml, duckdb-ui.yaml, _helpers.tpl's wait-for-ducklake-db), since the
-  # zitadel-db subchart's fullnameOverride differs between a single-instance
-  # local install and a replicated production one (see values-prod.example.yaml).
+  # Differs in production (db-postgresql-primary), see values-prod.example.yaml.
   postgresqlHost: "db-postgresql"
 
 # Traefik
@@ -37,8 +34,6 @@ zitadel-db:
   metrics:
     image:
       repository: bitnami/postgres-exporter
-  # No primary.initdb.scripts: the srdp-setup Job (setup.databases below)
-  # creates every database except zitadel's, on fresh and existing volumes.
   primary:
     persistence:
       enabled: true
@@ -202,33 +197,38 @@ dagster:
   dagsterWebserver:
     enableReadOnly: true
     extraPrependedInitContainers: &wait-for-dagster-db
-      # See templates/marquez.yaml's wait-for-marquez-db initContainer: same
-      # gap, the srdp-setup post-install/post-upgrade hook that repairs a
-      # missing dagster role/database has no ordering guarantee against this
-      # Deployment. checkDbReadyInitContainer (below) only confirms Postgres
-      # itself is reachable, not that this specific database exists.
+      # Copy of srdp.waitForDbLogin (_helpers.tpl), the subchart doesn't tpl this.
       - name: wait-for-dagster-db
         image: postgres:17-alpine
         command:
           - sh
           - -c
           - |
-            for i in $(seq 1 30); do
-              if psql "postgresql://postgres@db-postgresql:5432/postgres" -tAc \
-                "SELECT 1 FROM pg_database WHERE datname = 'dagster'" | grep -q 1; then
-                exit 0
-              fi
-              echo "waiting for the dagster database to be created ($i/30)..."
+            for i in $(seq 1 60); do
+              psql -tAc "SELECT 1" >/dev/null && exit 0
+              echo "waiting for $PGUSER to log in to $PGDATABASE ($i/60)..."
               sleep 2
             done
-            echo "dagster database still missing after 30 attempts, giving up." >&2
             exit 1
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 70
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: [ALL]
         env:
+          - name: PGHOST
+            value: db-postgresql
+          - name: PGUSER
+            value: dagster
+          - name: PGDATABASE
+            value: dagster
           - name: PGPASSWORD
             valueFrom:
               secretKeyRef:
-                name: db-postgresql
-                key: postgres-password
+                name: dagster-postgresql-secret
+                key: postgresql-password
   dagsterDaemon:
     extraPrependedInitContainers: *wait-for-dagster-db
   ingress:
@@ -260,9 +260,6 @@ dagster:
           - "-m"
           - "etl.definitions"
         port: 3030
-        # Same reasoning as dagsterWebserver/dagsterDaemon's wait-for-dagster-db
-        # above: this deployment reads/writes ducklake directly, wait for the
-        # actual database rather than assume srdp-setup already ran.
         initContainers:
           - name: wait-for-ducklake-db
             image: postgres:17-alpine
@@ -270,17 +267,26 @@ dagster:
               - sh
               - -c
               - |
-                for i in $(seq 1 30); do
-                  if psql "postgresql://postgres@db-postgresql:5432/postgres" -tAc \
-                    "SELECT 1 FROM pg_database WHERE datname = 'ducklake'" | grep -q 1; then
-                    exit 0
-                  fi
-                  echo "waiting for the ducklake database to be created ($i/30)..."
+                for i in $(seq 1 60); do
+                  psql -tAc "SELECT 1" >/dev/null && exit 0
+                  echo "waiting for $PGUSER to log in to $PGDATABASE ($i/60)..."
                   sleep 2
                 done
-                echo "ducklake database still missing after 30 attempts, giving up." >&2
                 exit 1
+            securityContext:
+              runAsNonRoot: true
+              runAsUser: 70
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop: [ALL]
             env:
+              - name: PGHOST
+                value: db-postgresql
+              - name: PGUSER
+                value: postgres
+              - name: PGDATABASE
+                value: ducklake
               - name: PGPASSWORD
                 valueFrom:
                   secretKeyRef:
@@ -317,17 +323,15 @@ quarto:
     tag: "v1.0"
     pullPolicy: IfNotPresent
 
-# Setup: idempotent database/role bootstrap Job, see templates/setup-job.yaml
+# Setup: database/role bootstrap Job
 setup:
+  # When disabled, the databases must exist already, consumers wait for them.
+  enabled: true
   image:
     repository: rg.nl-ams.scw.cloud/srdp-registry/srdp-setup
     tag: "v1.0"
     pullPolicy: IfNotPresent
-  # Rendered as the [setup] table of /etc/srdp/srdp.toml
-  # (templates/setup-configmap.yaml). The Compose equivalent is the [setup]
-  # table of the repo-root srdp.toml, keep them in step. Each
-  # entry with a role gets its password from a SETUP_PASSWORDS__<ROLE> env var
-  # on the Job; adding a role here means adding that env var there too.
+  # Keep in step with srdp.toml [setup]. A new role needs its SETUP_PASSWORDS__<ROLE> on the Job.
   databases:
     # Owned by the zitadel-db subchart's auth.* fields instead, a second
     # source for the same role could silently diverge.
@@ -369,9 +373,7 @@ hub:
 # Marquez (OpenLineage backend + UI); upstream images, not built by this repo
 marquez:
   enabled: true
-  # Local dev only, same convention as zitadel-db.auth.password and
-  # dagster.postgresql.postgresqlPassword above. Overridden with a generated
-  # value in the real (gitignored) values-prod.yaml.
+  # Local dev only.
   dbPassword: "srdpTest123"
   image:
     repository: marquezproject/marquez

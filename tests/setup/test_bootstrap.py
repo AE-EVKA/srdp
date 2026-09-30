@@ -89,6 +89,44 @@ def test_empty_password_for_enabled_role_fails(
 @pytest.fixture(autouse=True)
 def _superuser_password(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("POSTGRES_PASSWORD", "superuser-pw")
+    # The fake cursor has no connection to hash against.
+    monkeypatch.setattr("srdp.setup.bootstrap.encrypt_password", lambda pw, *_: f"hashed:{pw}")
+
+
+@pytest.mark.parametrize("role", ["Dagster", "my-role"])
+def test_invalid_role_name_fails(role: str) -> None:
+    with pytest.raises(ValidationError, match="pattern"):
+        DatabaseTarget(name="x", role=role)
+
+
+def test_superuser_as_role_fails() -> None:
+    with pytest.raises(ValidationError, match="superuser"):
+        SetupSettings(  # ty: ignore[missing-argument]
+            databases=[DatabaseTarget(name="x", role="postgres")],
+            passwords={"postgres": SecretStr("pw")},
+        )
+
+
+def test_misspelled_database_key_fails(tmp_path: Path) -> None:
+    config = tmp_path / "srdp.toml"
+    config.write_text('[[setup.databases]]\nname = "marquez"\nrol = "marquez"\n')
+
+    class TomlSettings(SetupSettings):
+        model_config = SettingsConfigDict(toml_file=config, toml_table_header=("setup",))
+
+    with pytest.raises(ValidationError, match="rol"):
+        TomlSettings()  # ty: ignore[missing-argument]
+
+
+def test_misspelled_setup_key_fails(tmp_path: Path) -> None:
+    config = tmp_path / "srdp.toml"
+    config.write_text('[setup]\npg_hsot = "db"\n\n[[setup.databases]]\nname = "ducklake"\n')
+
+    class TomlSettings(SetupSettings):
+        model_config = SettingsConfigDict(toml_file=config, toml_table_header=("setup",))
+
+    with pytest.raises(ValidationError, match="pg_hsot"):
+        TomlSettings()  # ty: ignore[missing-argument]
 
 
 def test_duplicate_database_names_fail() -> None:

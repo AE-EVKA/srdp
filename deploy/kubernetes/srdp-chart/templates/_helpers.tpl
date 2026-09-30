@@ -1,31 +1,49 @@
 {{/*
-Init container that blocks pod start until the ducklake database exists,
-checked directly rather than relying on Deployment ordering against the
-srdp-setup post-install/post-upgrade hook, which has no ordering guarantee
-against the chart's regular Deployments. See templates/marquez.yaml's
-wait-for-marquez-db initContainer for the same reasoning.
+Blocks pod start until <user> can log in to <db>. Logging in with the
+consumer's own password also waits out a password change the setup hook
+hasn't applied yet. Literal copies live in values*.yaml, keep them in step.
 */}}
-{{- define "srdp.waitForDucklakeDb" -}}
-- name: wait-for-ducklake-db
+{{- define "srdp.waitForDbLogin" -}}
+- name: wait-for-{{ .db }}-db
   image: postgres:17-alpine
   command:
     - sh
     - -c
     - |
-      for i in $(seq 1 30); do
-        if psql "postgresql://postgres@{{ .Values.global.postgresqlHost }}:5432/postgres" -tAc \
-          "SELECT 1 FROM pg_database WHERE datname = 'ducklake'" | grep -q 1; then
-          exit 0
-        fi
-        echo "waiting for the ducklake database to be created ($i/30)..."
+      for i in $(seq 1 60); do
+        psql -tAc "SELECT 1" >/dev/null && exit 0
+        echo "waiting for $PGUSER to log in to $PGDATABASE ($i/60)..."
         sleep 2
       done
-      echo "ducklake database still missing after 30 attempts, giving up." >&2
       exit 1
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 70
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: [ALL]
   env:
+    - name: PGHOST
+      value: {{ .root.Values.global.postgresqlHost | quote }}
+    - name: PGUSER
+      value: {{ .user | quote }}
+    - name: PGDATABASE
+      value: {{ .db | quote }}
     - name: PGPASSWORD
+      {{- if .secretName }}
       valueFrom:
         secretKeyRef:
-          name: db-postgresql
-          key: postgres-password
+          name: {{ .secretName }}
+          key: {{ .secretKey }}
+      {{- else }}
+      value: {{ .password | quote }}
+      {{- end }}
+{{- end -}}
+
+{{/*
+DuckLake connects as the superuser, see DUCKLAKE_PG_* in api.yaml and duckdb-ui.yaml.
+*/}}
+{{- define "srdp.waitForDucklakeDb" -}}
+{{ include "srdp.waitForDbLogin" (dict "root" . "db" "ducklake" "user" "postgres" "secretName" "db-postgresql" "secretKey" "postgres-password") }}
 {{- end -}}
