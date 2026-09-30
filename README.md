@@ -4,7 +4,7 @@ SRDP is a self-hostable data platform assembled from established open-source com
 
 The same logical architecture runs from a laptop (Docker Compose) to a single VM to a Kubernetes cluster, so development and production stay aligned.
 
-[^1]: The single-repository approach takes inspiration from the [Instant OpenHIE](https://openhie.github.io/instant/) project, which packages an open-source health information exchange the same way.
+[^1]: The single-repository approach takes inspiration from the [Instant OpenHIE](https://openhie.github.io/instant/) project, which packages an open-source health information exchange into a single deployment recipe.
 
 ---
 
