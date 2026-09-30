@@ -52,12 +52,12 @@ What changed is a new template for streamlit, a `streamlit:` block in `values.ya
 
 ### Databases
 
-What changed is the Postgres init script (under `zitadel-db.primary.initdb` in `values.yaml`). It now creates four databases, including `ducklake`, with the same names as the setup service from issue #60.
+Nothing changes in the chart for the databases. Since #64 the setup Job creates them from `setup.databases` in `values.yaml`, on every install and upgrade.
 
-- [ ] I compared the chart's init script with the #60 setup service, and both create the same databases and roles.
-- [ ] I ran `just local-delete` before deploying, because the init script only runs against an empty volume.
-- [ ] `kubectl get pvc -n srdp` showed no leftover volumes before the new deploy.
+- [ ] I read `setup.databases` in `values.yaml` and `templates/setup-job.yaml`, and I can explain why the `zitadel` entry is disabled.
+- [ ] `kubectl get jobs -n srdp` shows `srdp-setup` as completed after the deploy.
 - [ ] `kubectl exec -it <postgres-pod> -n srdp -- psql -U postgres -c '\l'` lists `zitadel`, `dagster`, `marquez` and `ducklake`.
+- [ ] No pod stayed in `Init` on a `wait-for-*-db` init container.
 
 ### Dagster module path
 

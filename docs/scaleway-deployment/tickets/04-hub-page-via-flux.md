@@ -81,6 +81,12 @@ Create a HelmRelease for the SRDP chart in `deploy/gitops/clusters/scaleway/dev`
 Because the chart lives in our own repository, Flux can fetch it directly from the Git source it already knows.
 
 In the HelmRelease values, enable only Traefik and the hub, and disable the rest.
+
+Set `spec.install.disableWait: true` and `spec.upgrade.disableWait: true` in the HelmRelease from the start.
+Flux waits by default until every pod is ready, and Helm only runs `post-install` and `post-upgrade` hooks after that wait.
+The setup Job from #64 is such a hook, and the apps wait in `wait-for-*-db` init containers for the databases it creates.
+With waiting on, the apps wait for the Job and the Job waits for the apps, until the release times out.
+With only Traefik and the hub enabled nothing waits yet, but ticket 5 enables Postgres and the apps in this same HelmRelease.
 Also fill in the following.
 
 - `global.domain` with `<LB_IP>.nip.io`. You only know the IP after step 4, so start with a placeholder.

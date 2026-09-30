@@ -46,11 +46,19 @@ That volume stays when you switch the nodes off later (ticket 7).
 Zitadel needs a master key of exactly 32 characters.
 The blueprint has already generated it in Secret Manager, and ticket 4 has put it in the cluster.
 
+Set `global.postgresqlHost` to the Service name of this Postgres.
+It defaults to `db-postgresql`, which is right for a standalone Postgres. With a primary and replicas the name is `db-postgresql-primary`.
+With the wrong name the setup Job cannot connect, and every `wait-for-*-db` init container waits forever.
+
+The setup Job from #64 now also runs, and creates the `dagster`, `marquez` and `ducklake` databases.
+Its passwords come from the Secrets of ticket 4, with the names from the secret table of ticket 01.
+Check that it completed with `kubectl get jobs -n srdp`.
+
 Wait until Zitadel runs and check that `https://auth.<LB_IP>.nip.io` shows the login page.
 
 ### 2. Let the setup Job create the OIDC app
 
-Enable the setup Job from ticket 5a in the HelmRelease.
+The setup Job already runs since step 1. Ticket 5a added the OIDC step to it, which needs Zitadel.
 Put the `nip.io` hostnames in its config, for every app from step 3.
 Those hostnames are known in advance, because ticket 4 reserved the load balancer IP.
 
@@ -84,4 +92,5 @@ Trigger a second reconcile with `flux reconcile helmrelease srdp -n srdp`, and c
 - **The project and app names are fixed.** The setup service looks for the `srdp` project and the `oauth2-proxy` app. It does not find other names.
 - **The redirect URI must match exactly.** One character off, or `http` instead of `https`, gives an error from Zitadel at login.
 - **The oauth2-proxy cookie.** If the cookie secret changes, everyone is logged out. The blueprint generates it once and keeps it in Secret Manager, so leave it there. Only the client ID and secret come from the setup Job.
+- **Waiting HelmRelease.** If the release hangs until it times out, with pods in `Init` and no setup Job, check that `disableWait` from ticket 4 is still set.
 - **Zitadel starts slowly.** The first start can take several minutes. The pod can temporarily show `CrashLoopBackOff` while it waits for Postgres.
