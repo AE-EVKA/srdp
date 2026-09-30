@@ -186,7 +186,8 @@ A cloud values file sets both as well, next to `global.imagePullSecrets`.
 - `setup.databases` already lists all four databases, with `zitadel` disabled on purpose.
 - A run pod writes its Parquet files inside its own container unless it shares a volume with the apps.
   The chart now has a `ducklake-data` volume, mounted read-write in the code location and its run pods and read-only in the apps.
-  It is `ReadWriteOnce`, which works on a single kind node. A multi-node cluster needs `ReadWriteMany` or object storage.
+  It is `ReadWriteOnce`, which works on a single kind node.
+  A multi-node cluster needs `ReadWriteMany` or object storage.
 - The login redirect points at `https://auth.srdp.localhost` without the `:18443` port, because Zitadel has `ExternalPort: 443`.
   That behaviour predates this ticket.
 

@@ -16,6 +16,7 @@ All notable changes to SRDP are documented here. The format follows [Keep a Chan
 ### Changed
 
 - The chart holds no passwords or keys. Every consumer reads a fixed-name Secret (`srdp-postgres`, `srdp-zitadel`, `srdp-oauth2-proxy`, `srdp-dagster-postgresql`, `srdp-marquez`). In kind, `templates/local-secrets.yaml` creates them from `values-local.yaml`. Existing `values-prod.yaml` files must drop their password values and create these Secrets instead.
+- Image `repository` values of the chart's own apps are bare names such as `marimo`, prefixed by `global.srdpRegistry`. Existing `values-prod.yaml` files that set a full repository path must shorten it.
 - Dagster in the chart launches at most one run at a time.
 - The base Kubernetes run profile requests 512Mi with a 1536Mi limit, since a full `srdp_etl_job` run peaks at about 1Gi.
 - Marquez loads its own config through `MARQUEZ_CONFIG` and reads its database password from `MARQUEZ_DB_PASSWORD`. Its role no longer uses the literal password `marquez`.

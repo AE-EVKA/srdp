@@ -45,11 +45,13 @@ def pod_specs(manifests: list[Manifest]) -> list[tuple[str, Manifest]]:
 
 
 def containers(spec: Manifest) -> list[Manifest]:
+    """Return the init containers and containers of a pod spec."""
     return spec.get("initContainers", []) + spec.get("containers", [])
 
 
 @pytest.fixture(scope="module")
 def local() -> list[Manifest]:
+    """Render the chart the way `just local-deploy` does."""
     return render("values.yaml", "values-local.yaml")
 
 
@@ -154,6 +156,7 @@ def test_setup_job_and_marquez_read_the_same_marquez_password(local: list[Manife
 
 
 def srdp_images(manifests: list[Manifest], registry: str) -> list[str]:
+    """Return every image built by this repo, on the given registry or the default one."""
     return [
         c["image"]
         for _, spec in pod_specs(manifests)
@@ -182,3 +185,12 @@ def test_one_value_moves_every_srdp_image_to_another_registry() -> None:
     for name in ("marimo", "api", "streamlit", "srdp-setup"):
         spec = next(s for n, s in pod_specs(manifests) if n == name)
         assert spec["imagePullSecrets"] == [{"name": "registry-key"}]
+
+
+def test_writers_and_readers_mount_ducklake_data_at_the_same_path(local: list[Manifest]) -> None:
+    names = ["srdp-dagster-user-deployments-srdp-etl", "api", "duckdb-ui", "marimo", "streamlit"]
+    paths = set()
+    for name in names:
+        container = find(local, "Deployment", name)["spec"]["template"]["spec"]["containers"][0]
+        paths |= {e["value"] for e in container["env"] if e["name"] == "DUCKLAKE_DATA_PATH"}
+    assert len(paths) == 1, paths

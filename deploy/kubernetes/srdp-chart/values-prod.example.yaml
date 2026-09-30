@@ -6,6 +6,10 @@ global:
   srdpRegistry: "rg.nl-ams.scw.cloud/srdp-registry"
   # imagePullSecrets:
   #   - name: registry-key
+  # The Dagster subcharts do not read global.imagePullSecrets. Set the same
+  # list on dagster.imagePullSecrets and
+  # dagster.dagster-user-deployments.imagePullSecrets, the latter also
+  # reaches run pods through includeConfigInLaunchedRuns.
 
 # No credentials in this file. Create the Secrets listed in values.yaml
 # (srdp-postgres, srdp-zitadel, srdp-oauth2-proxy, srdp-dagster-postgresql,

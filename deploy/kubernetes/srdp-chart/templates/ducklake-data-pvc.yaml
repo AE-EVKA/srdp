@@ -5,6 +5,7 @@
 # (ducklakeData.accessMode / storageClassName) or object storage instead.
 # Kept on `helm uninstall` so a reinstall does not lose the data files that
 # the ducklake catalog in Postgres still points at.
+{{- if or .Values.dagster.enabled .Values.api.enabled .Values.duckdbUi.enabled .Values.marimo.enabled .Values.streamlit.enabled }}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -20,3 +21,4 @@ spec:
   resources:
     requests:
       storage: {{ .Values.ducklakeData.size }}
+{{- end }}
