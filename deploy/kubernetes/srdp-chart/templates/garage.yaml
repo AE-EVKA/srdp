@@ -1,8 +1,8 @@
 {{- /*
 Garage: a single-node S3-compatible server for testing DuckLake on S3 in kind
 (values-local-s3.yaml). Not for production, where ducklakeStorage.s3 points
-at real object storage instead. The garage-setup hook Job creates the bucket
-and the writer and reader keys, see src/srdp/setup/garage.py.
+at real object storage instead. The srdp-setup Job's Garage step creates the
+bucket and the writer and reader keys, see src/srdp/setup/garage.py.
 */ -}}
 {{- if .Values.garage.enabled }}
 apiVersion: v1
@@ -108,56 +108,4 @@ spec:
     - name: admin
       port: 3903
       targetPort: admin
----
-# Same hook timing and retry reasoning as templates/setup-job.yaml. The keys
-# are the role Secrets the DuckLake consumers read, so Garage accepts exactly
-# the keys the deployment hands out.
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: garage-setup
-  annotations:
-    helm.sh/hook: post-install,post-upgrade
-    helm.sh/hook-weight: "6"
-    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
-spec:
-  template:
-    spec:
-      restartPolicy: OnFailure
-      {{- include "srdp.imagePullSecrets" . | nindent 6 }}
-      containers:
-        - name: garage-setup
-          image: {{ include "srdp.image" (list . .Values.setup.image) }}
-          imagePullPolicy: {{ .Values.setup.image.pullPolicy }}
-          command: ["python", "-m", "srdp.setup.garage"]
-          env:
-            - name: GARAGE_ADMIN_URL
-              value: "http://garage:3903"
-            - name: GARAGE_ADMIN_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: srdp-garage
-                  key: admin-token
-            - name: GARAGE_BUCKET
-              value: {{ required "ducklakeStorage.s3.bucket" .Values.ducklakeStorage.s3.bucket | quote }}
-            - name: GARAGE_WRITER_KEY_ID
-              valueFrom:
-                secretKeyRef:
-                  name: srdp-ducklake-s3-writer
-                  key: DUCKLAKE_S3_KEY_ID
-            - name: GARAGE_WRITER_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: srdp-ducklake-s3-writer
-                  key: DUCKLAKE_S3_SECRET
-            - name: GARAGE_READER_KEY_ID
-              valueFrom:
-                secretKeyRef:
-                  name: srdp-ducklake-s3-reader
-                  key: DUCKLAKE_S3_KEY_ID
-            - name: GARAGE_READER_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: srdp-ducklake-s3-reader
-                  key: DUCKLAKE_S3_SECRET
 {{- end }}

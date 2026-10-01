@@ -64,9 +64,14 @@ def test_s3_dagster_code_gets_the_writer_key(s3: dict[str, Any]) -> None:
     assert env["DUCKLAKE_S3_SECRET"] == WRITER_SECRET
 
 
-def test_s3_writer_key_reaches_only_dagster_and_the_garage_setup(s3: dict[str, Any]) -> None:
+def test_s3_writer_key_reaches_only_dagster_and_the_setup_service(s3: dict[str, Any]) -> None:
     holders = {name for name, service in s3.items() if WRITER_SECRET in json.dumps(service)}
-    assert holders == {"dagster-code", "garage-setup"}
+    assert holders == {"dagster-code", "srdp-setup"}
+
+
+def test_s3_setup_service_waits_for_garage(s3: dict[str, Any]) -> None:
+    assert "garage-setup" not in s3
+    assert s3["srdp-setup"]["depends_on"]["garage"]["condition"] == "service_healthy"
 
 
 def test_local_storage_stays_the_default_without_garage(tmp_path: Path) -> None:

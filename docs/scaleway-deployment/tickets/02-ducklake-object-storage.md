@@ -144,7 +144,8 @@ So a new variable does not reach the containers by itself.
 Add the new variables to all five DuckLake consumers (dagster-code, marimo, streamlit, api and duckdb-ui), and to `.env.example`.
 
 Add Garage as an optional Compose service in an `s3` profile, with a bucket that is created automatically.
-A setup step imports two keys.
+The setup service from #60 (`srdp-setup`) gets an optional Garage step that creates the bucket and imports two keys.
+It runs after the database bootstrap, and only when `GARAGE_ADMIN_TOKEN` is set.
 The writer may read and write the bucket, and the reader may only read it.
 Garage grants rights per bucket, not per prefix, so the lake gets its own bucket.
 The Garage image has no shell, so the setup talks to Garage's admin API from `src/srdp/setup/garage.py`.
@@ -152,6 +153,8 @@ Give dagster-code the writer pair as `DUCKLAKE_S3_KEY_ID` and `DUCKLAKE_S3_SECRE
 The keys are secrets, so they follow [ADR-0010](../../adr/0010-secret-management.md).
 
 Do the same in the chart.
+The `srdp-setup` Job runs the Garage step when `garage.enabled` is set.
+As a hook it has no ordering guarantee, so every DuckLake pod waits in a `wait-for-ducklake-bucket` init container until the bucket answers to that pod's own key, just as it waits for its database.
 A `ducklakeStorage` block in `values.yaml` renders one `srdp-ducklake-storage` ConfigMap that all five consumers read.
 The keys come from two Secrets, `srdp-ducklake-s3-writer` for Dagster and its run pods and `srdp-ducklake-s3-reader` for the apps.
 `values-local-s3.yaml` switches kind to S3 and turns on the bundled Garage.

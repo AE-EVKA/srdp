@@ -31,6 +31,43 @@ wait-for-marquez-db initContainer for the same reasoning.
 {{- end -}}
 
 {{/*
+Init container that blocks pod start until the DuckLake bucket answers to this
+pod's own S3 key, the S3 counterpart of wait-for-ducklake-db. The bucket may
+only appear once the srdp-setup hook Job's Garage step has run. Checking with
+the pod's own key needs no extra rights, and a wrong key shows up as a pod
+stuck in Init instead of a failing query. With local storage it exits at once.
+Usage: {{ include "srdp.waitForDucklakeBucket" "srdp-ducklake-s3-reader" }}
+The Dagster code location has the same container in values.yaml, with the
+writer Secret; keep the two in step.
+*/}}
+{{- define "srdp.waitForDucklakeBucket" -}}
+- name: wait-for-ducklake-bucket
+  image: curlimages/curl:8.22.0
+  envFrom:
+    {{- include "srdp.ducklakeEnvFrom" . | nindent 4 }}
+  env:
+    {{- include "srdp.ducklakeS3Key" . | nindent 4 }}
+  command:
+    - sh
+    - -c
+    - |
+      if [ "$DUCKLAKE_STORAGE_BACKEND" != "s3" ]; then exit 0; fi
+      scheme=https
+      if [ "$DUCKLAKE_S3_USE_SSL" = "false" ]; then scheme=http; fi
+      url="$scheme://$DUCKLAKE_S3_ENDPOINT/$DUCKLAKE_S3_BUCKET"
+      for i in $(seq 1 60); do
+        # The key goes in through stdin, so it never shows in the process list.
+        code=$(printf 'user = "%s:%s"\n' "$DUCKLAKE_S3_KEY_ID" "$DUCKLAKE_S3_SECRET" |
+          curl -s -o /dev/null -w '%{http_code}' -K - --aws-sigv4 "aws:amz:$DUCKLAKE_S3_REGION:s3" -I "$url")
+        if [ "$code" = "200" ]; then exit 0; fi
+        echo "waiting for bucket $DUCKLAKE_S3_BUCKET at $DUCKLAKE_S3_ENDPOINT, HTTP $code ($i/60)..."
+        sleep 2
+      done
+      echo "bucket $DUCKLAKE_S3_BUCKET still unreachable with this pod's key after 60 attempts, giving up." >&2
+      exit 1
+{{- end -}}
+
+{{/*
 DuckLake connection env for the apps that read the catalog, the Kubernetes
 equivalent of the DUCKLAKE_* block on each app in docker-compose.yml.
 */}}

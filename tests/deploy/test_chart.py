@@ -270,8 +270,9 @@ def test_local_storage_stays_the_default_and_needs_no_s3_key(local: list[Manifes
     assert not [m for m in local if m["kind"] in {"Deployment", "StatefulSet"} and m["metadata"]["name"] == "garage"]
 
 
-def test_s3_garage_accepts_exactly_the_keys_the_consumers_get(local_s3: list[Manifest]) -> None:
-    env = find(local_s3, "Job", "garage-setup")["spec"]["template"]["spec"]["containers"][0]["env"]
+def test_s3_setup_job_gives_garage_exactly_the_keys_the_consumers_get(local_s3: list[Manifest]) -> None:
+    assert not [m for m in local_s3 if m["kind"] == "Job" and m["metadata"]["name"] == "garage-setup"]
+    env = find(local_s3, "Job", "srdp-setup")["spec"]["template"]["spec"]["containers"][0]["env"]
     refs = {e["name"]: e["valueFrom"]["secretKeyRef"] for e in env if "valueFrom" in e}
     assert refs["GARAGE_WRITER_KEY_ID"] == {"name": WRITER_KEY, "key": "DUCKLAKE_S3_KEY_ID"}
     assert refs["GARAGE_WRITER_SECRET"] == {"name": WRITER_KEY, "key": "DUCKLAKE_S3_SECRET"}
@@ -279,3 +280,29 @@ def test_s3_garage_accepts_exactly_the_keys_the_consumers_get(local_s3: list[Man
     assert refs["GARAGE_READER_SECRET"] == {"name": READER_KEY, "key": "DUCKLAKE_S3_SECRET"}
     storage = find(local_s3, "ConfigMap", "srdp-ducklake-storage")["data"]
     assert next(e["value"] for e in env if e["name"] == "GARAGE_BUCKET") == storage["DUCKLAKE_S3_BUCKET"]
+
+
+def test_setup_job_skips_the_garage_step_without_garage(local: list[Manifest]) -> None:
+    env = find(local, "Job", "srdp-setup")["spec"]["template"]["spec"]["containers"][0]["env"]
+    assert not [e["name"] for e in env if e["name"].startswith("GARAGE_")]
+
+
+def bucket_wait(spec: Manifest) -> Manifest:
+    """Return the wait-for-ducklake-bucket init container of a pod spec."""
+    [container] = [c for c in spec.get("initContainers", []) if c["name"] == "wait-for-ducklake-bucket"]
+    return container
+
+
+@pytest.mark.parametrize(("name", "key"), [(DUCKLAKE_WRITER, WRITER_KEY)] + [(n, READER_KEY) for n in DUCKLAKE_READERS])
+def test_s3_every_consumer_waits_for_the_bucket_with_its_own_key(local_s3: list[Manifest], name: str, key: str) -> None:
+    wait = bucket_wait(find(local_s3, "Deployment", name)["spec"]["template"]["spec"])
+    assert {"configMapRef": {"name": "srdp-ducklake-storage"}} in wait["envFrom"]
+    assert {ref["name"] for ref in s3_key_refs(wait["env"])} == {key}
+
+
+def test_s3_dagster_run_pods_wait_for_the_bucket_too(local_s3: list[Manifest]) -> None:
+    container = find(local_s3, "Deployment", DUCKLAKE_WRITER)["spec"]["template"]["spec"]["containers"][0]
+    context = next(e["value"] for e in container["env"] if e["name"] == "DAGSTER_CLI_API_GRPC_CONTAINER_CONTEXT")
+    init = yaml.safe_load(context)["k8s"]["run_k8s_config"]["pod_spec_config"]["init_containers"]
+    [wait] = [c for c in init if c["name"] == "wait-for-ducklake-bucket"]
+    assert {ref["name"] for ref in s3_key_refs(wait["env"])} == {WRITER_KEY}

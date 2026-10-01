@@ -1,4 +1,4 @@
-"""Idempotent setup of the bundled Garage S3 server for DuckLake on S3, local testing only.
+"""Optional setup step for the bundled Garage S3 server, for DuckLake on S3 in local testing.
 
 Garage stands in for object storage in Docker Compose (the ``s3`` profile) and
 in kind (``values-local-s3.yaml``). This makes a fresh single-node Garage
@@ -14,25 +14,44 @@ The key ids and secrets are the same values the DuckLake consumers get as
 the keys the deployment hands out. Garage wants an id of ``GK`` plus 24 hex
 characters and a secret of 64 hex characters.
 
-Run with ``python -m srdp.setup.garage``. It talks to Garage's admin API v2
-with the standard library only, because the Garage image has no shell.
+This is a step of the setup service (``python -m srdp.setup``), after the
+database bootstrap. It only runs when ``GARAGE_ADMIN_TOKEN`` is set: the chart
+sets it with ``garage.enabled``, Compose when ``.env`` fills it in for the
+``s3`` profile. It talks to Garage's admin API v2 with the standard library
+only, because the Garage image has no shell.
 """
 
 import json
 import logging
-import sys
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from typing import Any
 
-from pydantic import Field, SecretStr, ValidationError
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger(__name__)
 
 _NOT_FOUND = 404
+
+
+class _GarageSwitch(BaseSettings):
+    """Only the admin token, to decide whether the Garage step runs at all."""
+
+    model_config = SettingsConfigDict(env_prefix="GARAGE_", extra="ignore", hide_input_in_errors=True)
+
+    admin_token: SecretStr = SecretStr("")
+
+
+def garage_requested() -> bool:
+    """Return whether the Garage step should run, i.e. whether ``GARAGE_ADMIN_TOKEN`` is set.
+
+    Returns:
+        True when a non-empty admin token is configured.
+    """
+    return bool(_GarageSwitch().admin_token.get_secret_value().strip())
 
 
 class GarageSetupSettings(BaseSettings):
@@ -190,19 +209,3 @@ def setup_garage(settings: GarageSetupSettings | None = None) -> None:
         settings.writer_key_id,
         settings.reader_key_id,
     )
-
-
-def main() -> None:
-    """Run the Garage setup and exit non-zero on invalid settings."""
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
-    try:
-        setup_garage()
-    except ValidationError as exc:
-        for error in exc.errors(include_input=False, include_url=False):
-            location = ".".join(str(part) for part in error["loc"]) or "settings"
-            logger.error("Invalid Garage setup config (%s): %s", location, error["msg"])  # noqa: TRY400 -- a traceback would print the keys
-        sys.exit(1)
-
-
-if __name__ == "__main__":
-    main()
