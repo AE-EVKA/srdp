@@ -108,7 +108,11 @@ dbt gets its settings through a plugin instead of a helper, see step 4.
 ### 3. Extend the settings
 
 `DuckLakeSettings` currently reads all settings from environment variables starting with `DUCKLAKE_`.
-Add a `storage_backend` choice (default `local`) and the fields for bucket, prefix, endpoint, URL style, region, `use_ssl` and one key pair.
+Add a `storage_backend` choice (default `local`) to it.
+Keep it for the Postgres catalog and the storage choice, so it stays clear which setting belongs to which part.
+Put the S3 fields in a separate `S3StorageSettings` with the prefix `DUCKLAKE_S3_`: bucket, prefix, endpoint, URL style, region, `use_ssl` and one key pair.
+It is only read when `storage_backend` is `s3`, so its fields can be truly required.
+Its validation errors must not print the values they were given, because they end up in the logs.
 Each process gets exactly one key pair, `DUCKLAKE_S3_KEY_ID` and `DUCKLAKE_S3_SECRET`.
 The deploy configuration decides whether that is the reader or the writer key.
 So no container holds both keys, and there is no role setting that could disagree with the key.

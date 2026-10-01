@@ -50,7 +50,6 @@ def ducklake_env(monkeypatch, postgres, tmp_path):
     container, port = postgres
     database = f"ducklake_{uuid.uuid4().hex[:8]}"
     assert _docker("exec", container, "createdb", "-U", "postgres", database).returncode == 0
-    monkeypatch.chdir(tmp_path)  # keep a stray .env in the repo out of the settings
     monkeypatch.setenv("DUCKLAKE_PG_HOST", "127.0.0.1")
     monkeypatch.setenv("DUCKLAKE_PG_PORT", str(port))
     monkeypatch.setenv("DUCKLAKE_PG_DB", database)

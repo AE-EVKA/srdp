@@ -3,7 +3,7 @@
 import logging
 import time
 from pathlib import Path
-from typing import Any, Literal, Self, cast
+from typing import Annotated, Any, Literal
 
 import duckdb
 import polars as pl
@@ -19,7 +19,7 @@ from dagster import (
     io_manager,
 )
 from psycopg2 import sql
-from pydantic import Field, SecretStr, model_validator
+from pydantic import Field, SecretStr, StringConstraints, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from srdp.io.storage import StorageBackend
@@ -35,18 +35,13 @@ _DEFAULT_SCHEMA = "main"
 # ---------------------------------------------------------------------------
 
 
-def _is_set(value: str | SecretStr | None) -> bool:
-    """Treat ``None`` and an empty string alike, as Compose's ``${VAR:-}`` yields the latter."""
-    if isinstance(value, SecretStr):
-        value = value.get_secret_value()
-    return bool(value and value.strip())
-
-
 class DuckLakeSettings(BaseSettings):
-    """DuckLake catalog settings.
+    """DuckLake catalog settings and the choice of storage backend.
 
     All fields can be overridden via environment variables prefixed
-    with ``DUCKLAKE_`` (e.g. ``DUCKLAKE_PG_HOST``).
+    with ``DUCKLAKE_`` (e.g. ``DUCKLAKE_PG_HOST``). The ``pg_*`` fields
+    locate the Postgres catalog. ``storage_backend`` picks where the data
+    files live: ``data_path`` for ``local``, ``S3StorageSettings`` for ``s3``.
     """
 
     model_config = SettingsConfigDict(
@@ -54,6 +49,7 @@ class DuckLakeSettings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
+        hide_input_in_errors=True,  # errors end up in logs and must not echo a password or key
     )
 
     pg_host: str = Field(default="localhost")
@@ -61,40 +57,13 @@ class DuckLakeSettings(BaseSettings):
     pg_user: str = Field(default="postgres")
     pg_password: str
     pg_db: str = Field(default="ducklake")
-    data_path: str = Field(default=".data/ducklake")
 
     storage_backend: Literal["local", "s3"] = "local"
-    s3_bucket: str | None = None
-    s3_prefix: str = ""
-    s3_endpoint: str | None = None
-    s3_url_style: Literal["path", "vhost"] | None = None
-    s3_region: str | None = None
-    s3_use_ssl: bool = True
-    s3_key_id: str | None = None
-    s3_secret: SecretStr | None = None
+    data_path: str = Field(default=".data/ducklake")
 
     target_file_size: int | None = None
     parquet_compression: str | None = None
     per_thread_output: bool | None = None
-
-    @model_validator(mode="after")
-    def _require_s3_settings(self) -> Self:
-        """Fail at startup when ``s3`` is selected without its required settings.
-
-        Endpoint, URL style and region have no AWS fallback on purpose: AWS
-        defaults do not work against Scaleway, Hetzner or MinIO.
-        """
-        if self.storage_backend != "s3":
-            return self
-        required = ("s3_bucket", "s3_endpoint", "s3_url_style", "s3_region", "s3_key_id", "s3_secret")
-        missing = [f"DUCKLAKE_{name.upper()}" for name in required if not _is_set(getattr(self, name))]
-        if missing:
-            msg = f"DUCKLAKE_STORAGE_BACKEND=s3 needs {', '.join(missing)}"
-            raise ValueError(msg)
-        if "://" in cast("str", self.s3_endpoint):
-            msg = "DUCKLAKE_S3_ENDPOINT takes a bare host[:port]; choose http or https with DUCKLAKE_S3_USE_SSL"
-            raise ValueError(msg)
-        return self
 
     @property
     def pg_connection_string(self) -> str:
@@ -107,6 +76,51 @@ class DuckLakeSettings(BaseSettings):
             f"host={self.pg_host} port={self.pg_port} "
             f"dbname={self.pg_db} user={self.pg_user} password={self.pg_password}"
         )
+
+
+# Compose turns an unset ``${VAR:-}`` into an empty string, which DuckDB would
+# read as "use the AWS default". Required S3 settings therefore reject it.
+_Required = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+
+
+class S3StorageSettings(BaseSettings):
+    """Where and how to reach the bucket that holds the DuckLake data files.
+
+    Read only when ``DUCKLAKE_STORAGE_BACKEND=s3``. Every field can be set via
+    an environment variable prefixed with ``DUCKLAKE_S3_`` (e.g.
+    ``DUCKLAKE_S3_BUCKET``). Endpoint, URL style and region have no AWS
+    fallback on purpose: AWS defaults do not work against Scaleway, Hetzner
+    or MinIO.
+
+    Each process gets one key pair. The deployment decides whether that is a
+    read-only key (query-serving apps) or a writer key (Dagster and dbt).
+    """
+
+    model_config = SettingsConfigDict(
+        env_prefix="DUCKLAKE_S3_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        hide_input_in_errors=True,  # errors end up in logs and must not echo a password or key
+    )
+
+    bucket: _Required
+    prefix: str = ""
+    endpoint: _Required = Field(description="Bare host[:port], e.g. s3.nl-ams.scw.cloud or minio:9000.")
+    url_style: Literal["path", "vhost"]
+    region: _Required = Field(description="Region used to sign requests, e.g. nl-ams.")
+    use_ssl: bool = True
+    key_id: _Required
+    secret: SecretStr = Field(min_length=1)
+
+    @field_validator("endpoint")
+    @classmethod
+    def _bare_host(cls, endpoint: str) -> str:
+        """Refuse a scheme, because DuckDB builds the URL from ``endpoint`` and ``use_ssl``."""
+        if "://" in endpoint:
+            msg = "takes a bare host[:port]; choose http or https with DUCKLAKE_S3_USE_SSL"
+            raise ValueError(msg)
+        return endpoint
 
 
 # ---------------------------------------------------------------------------
@@ -152,37 +166,12 @@ class S3StorageBackend(StorageBackend):
     """Store DuckLake data files in an S3-compatible bucket.
 
     Args:
-        bucket: Bucket name.
-        prefix: Key prefix inside the bucket that holds the lake.
-        endpoint: Bare S3 hostname, e.g. ``s3.nl-ams.scw.cloud`` or ``minio:9000``.
-        url_style: ``path`` or ``vhost`` addressing.
-        region: Region used to sign requests, e.g. ``nl-ams``.
-        use_ssl: Talk HTTPS to the endpoint when true, HTTP when false.
-        key_id: Access key id. Give query-serving processes a read-only key.
-        secret: Secret access key belonging to ``key_id``.
+        settings: Bucket, endpoint and key to use.
     """
 
-    def __init__(  # noqa: PLR0913 — one argument per S3 connection setting
-        self,
-        *,
-        bucket: str,
-        prefix: str,
-        endpoint: str,
-        url_style: Literal["path", "vhost"],
-        region: str,
-        use_ssl: bool,
-        key_id: str,
-        secret: SecretStr,
-    ) -> None:
-        """See class docstring for the arguments."""
-        self._bucket = bucket
-        self._prefix = prefix.strip("/")
-        self._endpoint = endpoint
-        self._url_style = url_style
-        self._region = region
-        self._use_ssl = use_ssl
-        self._key_id = key_id
-        self._secret = secret
+    def __init__(self, settings: S3StorageSettings) -> None:
+        """See class docstring for `settings`."""
+        self._s3 = settings
 
     def get_base_path(self) -> str:
         """Return the ``s3://`` URI of the lake root.
@@ -190,7 +179,8 @@ class S3StorageBackend(StorageBackend):
         Returns:
             ``s3://<bucket>/<prefix>/``, or ``s3://<bucket>/`` without a prefix.
         """
-        path = f"{self._bucket}/{self._prefix}" if self._prefix else self._bucket
+        prefix = self._s3.prefix.strip("/")
+        path = f"{self._s3.bucket}/{prefix}" if prefix else self._s3.bucket
         return f"s3://{path}/"
 
     def configure_duckdb(self, conn: duckdb.DuckDBPyConnection) -> None:
@@ -202,20 +192,21 @@ class S3StorageBackend(StorageBackend):
         Args:
             conn: An open DuckDB connection to configure.
         """
+        s3 = self._s3
         conn.execute("INSTALL httpfs")
         conn.execute("LOAD httpfs")
         conn.execute(
             "CREATE OR REPLACE SECRET ducklake_s3 ("
             "TYPE s3, "
-            f"KEY_ID {_sql_string(self._key_id)}, "
-            f"SECRET {_sql_string(self._secret.get_secret_value())}, "
-            f"ENDPOINT {_sql_string(self._endpoint)}, "
-            f"URL_STYLE {_sql_string(self._url_style)}, "
-            f"REGION {_sql_string(self._region)}, "
-            f"USE_SSL {str(self._use_ssl).lower()}, "
+            f"KEY_ID {_sql_string(s3.key_id)}, "
+            f"SECRET {_sql_string(s3.secret.get_secret_value())}, "
+            f"ENDPOINT {_sql_string(s3.endpoint)}, "
+            f"URL_STYLE {_sql_string(s3.url_style)}, "
+            f"REGION {_sql_string(s3.region)}, "
+            f"USE_SSL {str(s3.use_ssl).lower()}, "
             f"SCOPE {_sql_string(self.get_base_path())})"
         )
-        logger.info("Configured S3 secret for %s (endpoint=%s).", self.get_base_path(), self._endpoint)
+        logger.info("Configured S3 secret for %s (endpoint=%s).", self.get_base_path(), s3.endpoint)
 
     def dlt_filesystem_config(self) -> dict[str, Any]:
         """Render these settings as a dlt ``FilesystemConfiguration``.
@@ -226,15 +217,16 @@ class S3StorageBackend(StorageBackend):
         Returns:
             ``bucket_url`` plus ``credentials`` with dlt's ``AwsCredentials`` field names.
         """
-        scheme = "https" if self._use_ssl else "http"
+        s3 = self._s3
+        scheme = "https" if s3.use_ssl else "http"
         return {
             "bucket_url": self.get_base_path(),
             "credentials": {
-                "aws_access_key_id": self._key_id,
-                "aws_secret_access_key": self._secret.get_secret_value(),
-                "endpoint_url": f"{scheme}://{self._endpoint}",
-                "region_name": self._region,
-                "s3_url_style": self._url_style,
+                "aws_access_key_id": s3.key_id,
+                "aws_secret_access_key": s3.secret.get_secret_value(),
+                "endpoint_url": f"{scheme}://{s3.endpoint}",
+                "region_name": s3.region,
+                "s3_url_style": s3.url_style,
             },
         }
 
@@ -253,25 +245,21 @@ def _sql_string(value: str) -> str:
 def get_storage_backend(settings: DuckLakeSettings) -> StorageBackend:
     """Build the storage backend that ``settings.storage_backend`` selects.
 
+    For ``s3`` this reads ``S3StorageSettings`` from the ``DUCKLAKE_S3_*``
+    environment, so a missing or empty S3 setting fails here, at startup.
+
     Args:
-        settings: DuckLake settings with the storage choice and its fields.
+        settings: DuckLake settings with the storage choice.
 
     Returns:
         The configured storage backend.
+
+    Raises:
+        pydantic.ValidationError: If ``s3`` is selected and its settings are incomplete.
     """
-    if settings.storage_backend == "local":
-        return LocalStorageBackend(settings.data_path)
-    # DuckLakeSettings._require_s3_settings has already rejected a None in any of these.
-    return S3StorageBackend(
-        bucket=cast("str", settings.s3_bucket),
-        prefix=settings.s3_prefix,
-        endpoint=cast("str", settings.s3_endpoint),
-        url_style=cast("Literal['path', 'vhost']", settings.s3_url_style),
-        region=cast("str", settings.s3_region),
-        use_ssl=settings.s3_use_ssl,
-        key_id=cast("str", settings.s3_key_id),
-        secret=cast("SecretStr", settings.s3_secret),
-    )
+    if settings.storage_backend == "s3":
+        return S3StorageBackend(S3StorageSettings())  # ty: ignore[missing-argument]
+    return LocalStorageBackend(settings.data_path)
 
 
 # ---------------------------------------------------------------------------

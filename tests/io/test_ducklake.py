@@ -2,22 +2,38 @@ import duckdb
 import pytest
 from pydantic import ValidationError
 
-from srdp.io.ducklake import DuckLakeSettings, LocalStorageBackend, S3StorageBackend, get_storage_backend
+from srdp.io.ducklake import (
+    DuckLakeSettings,
+    LocalStorageBackend,
+    S3StorageBackend,
+    S3StorageSettings,
+    get_storage_backend,
+)
 
-S3_SETTINGS = {
-    "storage_backend": "s3",
-    "s3_bucket": "lake",
-    "s3_prefix": "dev",
-    "s3_endpoint": "s3.nl-ams.scw.cloud",
-    "s3_url_style": "path",
-    "s3_region": "nl-ams",
-    "s3_key_id": "SCWREADER",
-    "s3_secret": "reader-secret",
+S3 = {
+    "bucket": "lake",
+    "prefix": "dev",
+    "endpoint": "s3.nl-ams.scw.cloud",
+    "url_style": "path",
+    "region": "nl-ams",
+    "key_id": "SCWREADER",
+    "secret": "reader-secret",
 }
 
 
 def _settings(**overrides) -> DuckLakeSettings:
     return DuckLakeSettings(_env_file=None, pg_password="pw", **overrides)  # noqa: S106 — throwaway test value
+
+
+def _s3_backend(**overrides) -> S3StorageBackend:
+    return S3StorageBackend(S3StorageSettings(_env_file=None, **{**S3, **overrides}))
+
+
+def _invalid_fields(exc: pytest.ExceptionInfo[ValidationError]) -> set[str]:
+    return {str(error["loc"][0]) for error in exc.value.errors()}
+
+
+# Backend selection
 
 
 def test_local_is_the_default_backend(tmp_path):
@@ -27,39 +43,50 @@ def test_local_is_the_default_backend(tmp_path):
     assert backend.get_base_path() == str(tmp_path / "lake")
 
 
-def test_s3_backend_stores_the_lake_under_bucket_and_prefix():
-    backend = get_storage_backend(_settings(**S3_SETTINGS))
+def test_s3_backend_reads_its_settings_from_the_ducklake_s3_environment(monkeypatch):
+    for key, value in S3.items():
+        monkeypatch.setenv(f"DUCKLAKE_S3_{key.upper()}", value)
+
+    backend = get_storage_backend(_settings(storage_backend="s3"))
 
     assert isinstance(backend, S3StorageBackend)
     assert backend.get_base_path() == "s3://lake/dev/"
 
 
-@pytest.mark.parametrize("field", ["s3_bucket", "s3_endpoint", "s3_url_style", "s3_region", "s3_key_id", "s3_secret"])
-def test_s3_refuses_to_start_without_a_required_setting(field):
-    incomplete = {k: v for k, v in S3_SETTINGS.items() if k != field}
+def test_s3_backend_refuses_to_start_without_its_settings():
+    with pytest.raises(ValidationError) as exc:
+        get_storage_backend(_settings(storage_backend="s3"))
 
-    with pytest.raises(ValidationError, match=f"DUCKLAKE_{field.upper()}"):
-        _settings(**incomplete)
+    assert _invalid_fields(exc) == {"bucket", "endpoint", "url_style", "region", "key_id", "secret"}
 
 
-@pytest.mark.parametrize("field", ["s3_bucket", "s3_endpoint", "s3_region", "s3_key_id", "s3_secret"])
+# S3 settings
+
+
+@pytest.mark.parametrize("field", ["bucket", "endpoint", "region", "key_id", "secret"])
 def test_s3_treats_an_empty_setting_as_missing(field):
     """Compose's ``${VAR:-}`` passes an empty string; DuckDB would read it as "use the AWS default"."""
-    with pytest.raises(ValidationError, match=f"DUCKLAKE_{field.upper()}"):
-        _settings(**{**S3_SETTINGS, field: ""})
+    with pytest.raises(ValidationError) as exc:
+        S3StorageSettings(_env_file=None, **{**S3, field: ""})
+
+    assert _invalid_fields(exc) == {field}
 
 
-@pytest.mark.parametrize(("prefix", "base_path"), [("", "s3://lake/"), ("/dev/", "s3://lake/dev/")])
-def test_s3_base_path_without_or_with_slashed_prefix(prefix, base_path):
-    backend = get_storage_backend(_settings(**{**S3_SETTINGS, "s3_prefix": prefix}))
+def test_s3_endpoint_with_a_scheme_is_refused():
+    with pytest.raises(ValidationError, match="DUCKLAKE_S3_USE_SSL") as exc:
+        S3StorageSettings(_env_file=None, **{**S3, "endpoint": "https://s3.nl-ams.scw.cloud"})
 
-    assert backend.get_base_path() == base_path
+    assert _invalid_fields(exc) == {"endpoint"}
 
 
-def test_local_backend_needs_no_s3_settings(tmp_path):
-    settings = _settings(data_path=str(tmp_path))
+# S3 backend
 
-    assert settings.storage_backend == "local"
+
+@pytest.mark.parametrize(
+    ("prefix", "base_path"), [("dev", "s3://lake/dev/"), ("", "s3://lake/"), ("/dev/", "s3://lake/dev/")]
+)
+def test_s3_base_path_is_bucket_and_prefix(prefix, base_path):
+    assert _s3_backend(prefix=prefix).get_base_path() == base_path
 
 
 def _s3_secrets(conn) -> list[dict[str, str]]:
@@ -70,7 +97,7 @@ def _s3_secrets(conn) -> list[dict[str, str]]:
 def test_s3_connection_gets_a_secret_scoped_to_the_lake():
     conn = duckdb.connect()
 
-    get_storage_backend(_settings(**S3_SETTINGS)).configure_duckdb(conn)
+    _s3_backend().configure_duckdb(conn)
 
     [secret] = _s3_secrets(conn)
     assert secret["scope"] == "s3://lake/dev/"
@@ -84,16 +111,14 @@ def test_s3_connection_gets_a_secret_scoped_to_the_lake():
 def test_a_quote_in_a_credential_cannot_break_out_of_the_secret_sql():
     conn = duckdb.connect()
 
-    get_storage_backend(
-        _settings(**{**S3_SETTINGS, "s3_key_id": "a'b", "s3_secret": "x'); DROP TABLE t; --"})
-    ).configure_duckdb(conn)
+    _s3_backend(key_id="a'b", secret="x'); DROP TABLE t; --").configure_duckdb(conn)  # noqa: S106 — injection probe
 
     [secret] = _s3_secrets(conn)
     assert secret["key_id"] == "a'b"
 
 
 def test_dlt_gets_the_same_bucket_endpoint_and_key():
-    backend = get_storage_backend(_settings(**{**S3_SETTINGS, "s3_endpoint": "minio:9000", "s3_use_ssl": False}))
+    backend = _s3_backend(endpoint="minio:9000", use_ssl=False)
 
     assert backend.dlt_filesystem_config() == {
         "bucket_url": "s3://lake/dev/",
@@ -107,6 +132,9 @@ def test_dlt_gets_the_same_bucket_endpoint_and_key():
     }
 
 
-def test_s3_endpoint_with_a_scheme_is_refused():
-    with pytest.raises(ValidationError, match="DUCKLAKE_S3_USE_SSL"):
-        _settings(**{**S3_SETTINGS, "s3_endpoint": "https://s3.nl-ams.scw.cloud"})
+def test_a_settings_error_does_not_print_the_secret():
+    """The error lands in startup logs, so it must not echo the key it was given."""
+    with pytest.raises(ValidationError) as exc:
+        S3StorageSettings(_env_file=None, bucket="lake", secret="do-not-log-me")  # noqa: S106 — leak probe
+
+    assert "do-not-log-me" not in str(exc.value)
