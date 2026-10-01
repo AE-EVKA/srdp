@@ -3,6 +3,7 @@
 import logging
 import time
 from pathlib import Path
+from typing import Any, Literal, Self, cast
 
 import duckdb
 import polars as pl
@@ -18,7 +19,7 @@ from dagster import (
     io_manager,
 )
 from psycopg2 import sql
-from pydantic import Field
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from srdp.io.storage import StorageBackend
@@ -32,6 +33,13 @@ _DEFAULT_SCHEMA = "main"
 # ---------------------------------------------------------------------------
 # Settings
 # ---------------------------------------------------------------------------
+
+
+def _is_set(value: str | SecretStr | None) -> bool:
+    """Treat ``None`` and an empty string alike, as Compose's ``${VAR:-}`` yields the latter."""
+    if isinstance(value, SecretStr):
+        value = value.get_secret_value()
+    return bool(value and value.strip())
 
 
 class DuckLakeSettings(BaseSettings):
@@ -55,9 +63,38 @@ class DuckLakeSettings(BaseSettings):
     pg_db: str = Field(default="ducklake")
     data_path: str = Field(default=".data/ducklake")
 
+    storage_backend: Literal["local", "s3"] = "local"
+    s3_bucket: str | None = None
+    s3_prefix: str = ""
+    s3_endpoint: str | None = None
+    s3_url_style: Literal["path", "vhost"] | None = None
+    s3_region: str | None = None
+    s3_use_ssl: bool = True
+    s3_key_id: str | None = None
+    s3_secret: SecretStr | None = None
+
     target_file_size: int | None = None
     parquet_compression: str | None = None
     per_thread_output: bool | None = None
+
+    @model_validator(mode="after")
+    def _require_s3_settings(self) -> Self:
+        """Fail at startup when ``s3`` is selected without its required settings.
+
+        Endpoint, URL style and region have no AWS fallback on purpose: AWS
+        defaults do not work against Scaleway, Hetzner or MinIO.
+        """
+        if self.storage_backend != "s3":
+            return self
+        required = ("s3_bucket", "s3_endpoint", "s3_url_style", "s3_region", "s3_key_id", "s3_secret")
+        missing = [f"DUCKLAKE_{name.upper()}" for name in required if not _is_set(getattr(self, name))]
+        if missing:
+            msg = f"DUCKLAKE_STORAGE_BACKEND=s3 needs {', '.join(missing)}"
+            raise ValueError(msg)
+        if "://" in cast("str", self.s3_endpoint):
+            msg = "DUCKLAKE_S3_ENDPOINT takes a bare host[:port]; choose http or https with DUCKLAKE_S3_USE_SSL"
+            raise ValueError(msg)
+        return self
 
     @property
     def pg_connection_string(self) -> str:
@@ -104,6 +141,137 @@ class LocalStorageBackend(StorageBackend):
         Args:
             conn: An open DuckDB connection (unused for local storage).
         """
+
+
+# ---------------------------------------------------------------------------
+# Storage backend — S3-compatible object storage
+# ---------------------------------------------------------------------------
+
+
+class S3StorageBackend(StorageBackend):
+    """Store DuckLake data files in an S3-compatible bucket.
+
+    Args:
+        bucket: Bucket name.
+        prefix: Key prefix inside the bucket that holds the lake.
+        endpoint: Bare S3 hostname, e.g. ``s3.nl-ams.scw.cloud`` or ``minio:9000``.
+        url_style: ``path`` or ``vhost`` addressing.
+        region: Region used to sign requests, e.g. ``nl-ams``.
+        use_ssl: Talk HTTPS to the endpoint when true, HTTP when false.
+        key_id: Access key id. Give query-serving processes a read-only key.
+        secret: Secret access key belonging to ``key_id``.
+    """
+
+    def __init__(  # noqa: PLR0913 — one argument per S3 connection setting
+        self,
+        *,
+        bucket: str,
+        prefix: str,
+        endpoint: str,
+        url_style: Literal["path", "vhost"],
+        region: str,
+        use_ssl: bool,
+        key_id: str,
+        secret: SecretStr,
+    ) -> None:
+        """See class docstring for the arguments."""
+        self._bucket = bucket
+        self._prefix = prefix.strip("/")
+        self._endpoint = endpoint
+        self._url_style = url_style
+        self._region = region
+        self._use_ssl = use_ssl
+        self._key_id = key_id
+        self._secret = secret
+
+    def get_base_path(self) -> str:
+        """Return the ``s3://`` URI of the lake root.
+
+        Returns:
+            ``s3://<bucket>/<prefix>/``, or ``s3://<bucket>/`` without a prefix.
+        """
+        path = f"{self._bucket}/{self._prefix}" if self._prefix else self._bucket
+        return f"s3://{path}/"
+
+    def configure_duckdb(self, conn: duckdb.DuckDBPyConnection) -> None:
+        """Load ``httpfs`` and create the S3 secret for this lake.
+
+        The secret is scoped to the lake root, so it is only used for paths
+        under ``s3://<bucket>/<prefix>/``.
+
+        Args:
+            conn: An open DuckDB connection to configure.
+        """
+        conn.execute("INSTALL httpfs")
+        conn.execute("LOAD httpfs")
+        conn.execute(
+            "CREATE OR REPLACE SECRET ducklake_s3 ("
+            "TYPE s3, "
+            f"KEY_ID {_sql_string(self._key_id)}, "
+            f"SECRET {_sql_string(self._secret.get_secret_value())}, "
+            f"ENDPOINT {_sql_string(self._endpoint)}, "
+            f"URL_STYLE {_sql_string(self._url_style)}, "
+            f"REGION {_sql_string(self._region)}, "
+            f"USE_SSL {str(self._use_ssl).lower()}, "
+            f"SCOPE {_sql_string(self.get_base_path())})"
+        )
+        logger.info("Configured S3 secret for %s (endpoint=%s).", self.get_base_path(), self._endpoint)
+
+    def dlt_filesystem_config(self) -> dict[str, Any]:
+        """Render these settings as a dlt ``FilesystemConfiguration``.
+
+        Pass the result to ``dlt.destinations.filesystem(**config)`` so a dlt
+        pipeline writes with the same bucket, endpoint and key as DuckDB.
+
+        Returns:
+            ``bucket_url`` plus ``credentials`` with dlt's ``AwsCredentials`` field names.
+        """
+        scheme = "https" if self._use_ssl else "http"
+        return {
+            "bucket_url": self.get_base_path(),
+            "credentials": {
+                "aws_access_key_id": self._key_id,
+                "aws_secret_access_key": self._secret.get_secret_value(),
+                "endpoint_url": f"{scheme}://{self._endpoint}",
+                "region_name": self._region,
+                "s3_url_style": self._url_style,
+            },
+        }
+
+
+def _sql_string(value: str) -> str:
+    """Quote ``value`` as a SQL string literal, doubling embedded quotes."""
+    escaped = value.replace("'", "''")
+    return f"'{escaped}'"
+
+
+# ---------------------------------------------------------------------------
+# Backend selection
+# ---------------------------------------------------------------------------
+
+
+def get_storage_backend(settings: DuckLakeSettings) -> StorageBackend:
+    """Build the storage backend that ``settings.storage_backend`` selects.
+
+    Args:
+        settings: DuckLake settings with the storage choice and its fields.
+
+    Returns:
+        The configured storage backend.
+    """
+    if settings.storage_backend == "local":
+        return LocalStorageBackend(settings.data_path)
+    # DuckLakeSettings._require_s3_settings has already rejected a None in any of these.
+    return S3StorageBackend(
+        bucket=cast("str", settings.s3_bucket),
+        prefix=settings.s3_prefix,
+        endpoint=cast("str", settings.s3_endpoint),
+        url_style=cast("Literal['path', 'vhost']", settings.s3_url_style),
+        region=cast("str", settings.s3_region),
+        use_ssl=settings.s3_use_ssl,
+        key_id=cast("str", settings.s3_key_id),
+        secret=cast("SecretStr", settings.s3_secret),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -185,17 +353,10 @@ def create_connection(
         duckdb.Error: If the catalog cannot be attached after all retries.
     """
     if backend is None:
-        backend = LocalStorageBackend(settings.data_path)
+        backend = get_storage_backend(settings)
 
-    conn = duckdb.connect()
-    conn.execute("INSTALL ducklake")
-    conn.execute("LOAD ducklake")
-    backend.configure_duckdb(conn)
-
-    attach_query = (
-        f"ATTACH 'ducklake:postgres:{settings.pg_connection_string}' "
-        f"AS {_CATALOG} (DATA_PATH '{backend.get_base_path()}', OVERRIDE_DATA_PATH TRUE)"
-    )
+    conn = _prepare_connection(duckdb.connect(), backend)
+    attach_query = _attach_sql(settings, backend)
 
     max_retries = 3
     for attempt in range(max_retries):
@@ -207,10 +368,7 @@ def create_connection(
                 logger.warning("DuckLake catalog init race (attempt %d), retrying...", attempt + 1)
                 time.sleep(1)
                 conn.close()
-                conn = duckdb.connect()
-                conn.execute("INSTALL ducklake")
-                conn.execute("LOAD ducklake")
-                backend.configure_duckdb(conn)
+                conn = _prepare_connection(duckdb.connect(), backend)
             else:
                 raise
 
@@ -240,8 +398,43 @@ def setup_ducklake(
     if settings is None:
         settings = DuckLakeSettings()  # ty: ignore[missing-argument]
     ensure_database(settings)
-    backend = LocalStorageBackend(settings.data_path)
-    return create_connection(settings, backend)
+    return create_connection(settings, get_storage_backend(settings))
+
+
+def attach_catalog(
+    conn: duckdb.DuckDBPyConnection,
+    settings: DuckLakeSettings,
+) -> None:
+    """Configure storage and attach the DuckLake catalog on a connection someone else opened.
+
+    For callers that own the connection, such as the dbt-duckdb plugin in
+    ``srdp.io.dbt_plugin``. Code that can open its own connection uses
+    ``setup_ducklake`` instead, which also retries a concurrent init race.
+
+    Args:
+        conn: An open DuckDB connection.
+        settings: DuckLake settings with the catalog and storage details.
+    """
+    backend = get_storage_backend(settings)
+    _prepare_connection(conn, backend)
+    conn.execute(_attach_sql(settings, backend))
+    _apply_tuning_options(conn, settings)
+    logger.info("Attached DuckLake catalog (db=%s, data_path=%s).", settings.pg_db, backend.get_base_path())
+
+
+def _prepare_connection(conn: duckdb.DuckDBPyConnection, backend: StorageBackend) -> duckdb.DuckDBPyConnection:
+    """Load the DuckLake extension and let ``backend`` configure its storage access."""
+    conn.execute("INSTALL ducklake")
+    conn.execute("LOAD ducklake")
+    backend.configure_duckdb(conn)
+    return conn
+
+
+def _attach_sql(settings: DuckLakeSettings, backend: StorageBackend) -> str:
+    """Build the ``ATTACH`` statement for the DuckLake catalog on ``backend``."""
+    catalog = _sql_string(f"ducklake:postgres:{settings.pg_connection_string}")
+    data_path = _sql_string(backend.get_base_path())
+    return f"ATTACH {catalog} AS {_CATALOG} (DATA_PATH {data_path}, OVERRIDE_DATA_PATH TRUE)"
 
 
 # ---------------------------------------------------------------------------

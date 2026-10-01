@@ -23,8 +23,8 @@ jobs:
       # project's own env synced first, pre-commit's own hook envs (ruff,
       # gitleaks, terraform, yamllint) install themselves. The extras below
       # are every optional dependency group src/srdp/ actually imports
-      # (duckdb/psycopg2/pydantic-settings, openlineage-python, fastapi),
-      # without them ty can't resolve those imports and reports them as
-      # errors instead of checking the code that uses them.
-      - run: uv sync --group dev --extra ducklake --extra openlineage --extra api
+      # (duckdb/psycopg2/pydantic-settings, openlineage-python, fastapi,
+      # dbt-duckdb), without them ty can't resolve those imports and reports
+      # them as errors instead of checking the code that uses them.
+      - run: uv sync --group dev --extra ducklake --extra openlineage --extra api --extra dbt
       - run: uv run pre-commit run --all-files --show-diff-on-failure

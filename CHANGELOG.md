@@ -4,6 +4,16 @@ All notable changes to SRDP are documented here. The format follows [Keep a Chan
 
 ## [Unreleased]
 
+### Added
+
+- `S3StorageBackend` stores the DuckLake data files in S3-compatible object storage (Scaleway, Hetzner, MinIO) when `DUCKLAKE_STORAGE_BACKEND=s3` is set. Endpoint, URL style and region are required, with no AWS defaults, and the DuckDB secret is scoped to the lake prefix. The default stays `local`, so nothing changes without the setting. Part of #56.
+- `srdp.io.dbt_plugin`, a dbt-duckdb plugin that attaches DuckLake with the same storage settings as Dagster, so a dbt profile no longer needs its own copy of them.
+- `S3StorageBackend.dlt_filesystem_config()` renders the same bucket, endpoint and key for a dlt filesystem destination.
+
+### Changed
+
+- CI installs the `dbt` extra, so `ty` can resolve the dbt-duckdb plugin's imports.
+
 ## [0.3.1] - 2026-09-27
 
 ### Fixed
