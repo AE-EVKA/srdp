@@ -93,10 +93,27 @@ def _superuser_password(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("srdp.setup.bootstrap.encrypt_password", lambda pw, *_: f"hashed:{pw}")
 
 
-@pytest.mark.parametrize("role", ["Dagster", "my-role"])
+@pytest.mark.parametrize("role", ["Dagster", "my-role", "r" * 64])
 def test_invalid_role_name_fails(role: str) -> None:
     with pytest.raises(ValidationError, match="pattern"):
         DatabaseTarget(name="x", role=role)
+
+
+def test_identifiers_up_to_63_chars_pass() -> None:
+    target = DatabaseTarget(name="d" * 63, role="r" * 63)
+    assert len(target.name) == len(target.role or "") == 63
+
+
+def test_role_with_double_underscore_finds_its_password(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SETUP_PASSWORDS__A__B", "pw")
+    settings = SetupSettings(databases=[DatabaseTarget(name="x", role="a__b")])  # ty: ignore[missing-argument]
+    assert settings.passwords["a__b"].get_secret_value() == "pw"
+
+
+@pytest.mark.parametrize("name", ["", "Marquez", "my-db", "d" * 64])
+def test_invalid_database_name_fails(name: str) -> None:
+    with pytest.raises(ValidationError, match="pattern"):
+        DatabaseTarget(name=name)
 
 
 def test_superuser_as_role_fails() -> None:

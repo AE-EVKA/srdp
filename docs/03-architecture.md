@@ -277,6 +277,7 @@ One shared PostgreSQL instance. Each service gets its own database and user, cre
 | `ducklake` | `postgres` | DuckLake catalog metadata (one schema per catalog) |
 
 Each DuckLake catalog gets its own metadata schema within `ducklake`. By default a tenant's projects share one catalog, and a project that is split out into a dedicated catalog gets its own schema (for example `ducklake_sales`, see [ADR-0006](adr/0006-deployment-and-project-isolation-model.md)). All four databases live in the single PostgreSQL instance, so one backup covers them.
+On Kubernetes, the Bitnami subchart's `auth.*` fields create `zitadel` instead, so its entry in `setup.databases` is disabled.
 
 ## Component configuration
 

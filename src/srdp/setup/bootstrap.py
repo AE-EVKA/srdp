@@ -25,15 +25,20 @@ logger = logging.getLogger(__name__)
 CONFIG_PATH = Path("/etc/srdp/srdp.toml")
 
 
+# Lowercase, and within Postgres's 63-byte identifier limit, since a longer
+# name is truncated on creation and never matched again.
+Identifier = Annotated[str, StringConstraints(pattern=r"^[a-z_][a-z0-9_]{0,62}$")]
+
+
 class DatabaseTarget(BaseModel):
     """One database (and optionally its own role) the setup service ensures exists."""
 
     model_config = ConfigDict(extra="forbid")
 
-    name: str
-    # Lowercase only, env var keys (SETUP_PASSWORDS__<ROLE>) are lowercased.
+    name: Identifier
+    # Lowercase, SETUP_PASSWORDS__<ROLE> keys are lowercased.
     # None reuses the superuser as owner (DuckLake connects as the superuser).
-    role: Annotated[str, StringConstraints(pattern=r"^[a-z_][a-z0-9_]*$")] | None = None
+    role: Identifier | None = None
     # False leaves the target to another owner, e.g. the Bitnami subchart's
     # auth.* fields own zitadel's role/database on Kubernetes.
     enabled: bool = True
@@ -45,6 +50,8 @@ class SetupSettings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="SETUP_",
         env_nested_delimiter="__",
+        # Split only once, so a role named a__b still maps to passwords["a__b"].
+        env_nested_max_split=1,
         toml_file=CONFIG_PATH,
         toml_table_header=("setup",),
         extra="forbid",

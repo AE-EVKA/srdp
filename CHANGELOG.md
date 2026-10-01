@@ -21,7 +21,7 @@ All notable changes to SRDP are documented here. The format follows [Keep a Chan
 - Chart templates read the Postgres host from `global.postgresqlHost`, so production's `db-postgresql-primary` works without template edits.
 - On Kubernetes, each database consumer waits in an init container until it can log in to its own database with its own password.
   The chart templates share the `srdp.waitForDbLogin` helper, and the Dagster values carry literal copies because the subchart can't use it.
-- `srdp-setup` validates its config strictly: unknown keys, role names outside `[a-z0-9_]` and the superuser as a role all fail at startup.
+- `srdp-setup` validates its config strictly: unknown keys, database and role names that aren't lowercase Postgres identifiers of at most 63 characters, and the superuser as a role all fail at startup.
 - `srdp-setup` sends role passwords as SCRAM hashes, so a logged statement never holds a plain password.
 - `srdp-setup` and the wait containers run as non-root with a read-only filesystem and no capabilities.
 - The chart's setup Job runs before Zitadel's hooks, gives up after 2 retries or 4 minutes, and can be switched off with `setup.enabled`.
