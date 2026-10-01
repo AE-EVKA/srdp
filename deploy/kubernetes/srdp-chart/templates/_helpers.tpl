@@ -1,6 +1,7 @@
 {{/*
-Init container that blocks pod start until the ducklake database exists,
-checked directly rather than relying on Deployment ordering against the
+Init container that blocks pod start until the Postgres database `ducklake`
+exists. It holds DuckLake's catalog; the Parquet files live in the data path
+or the bucket, see srdp.waitForDucklakeBucket. Checked directly rather than relying on Deployment ordering against the
 srdp-setup post-install/post-upgrade hook, which has no ordering guarantee
 against the chart's regular Deployments. See templates/marquez.yaml's
 wait-for-marquez-db initContainer for the same reasoning.
