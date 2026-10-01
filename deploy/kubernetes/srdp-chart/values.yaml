@@ -23,6 +23,10 @@ global:
 #   srdp-oauth2-proxy        client-id, client-secret, cookie-secret
 #   srdp-dagster-postgresql  postgresql-password
 #   srdp-marquez             db-password
+#   srdp-ducklake-s3-writer  DUCKLAKE_S3_KEY_ID, DUCKLAKE_S3_SECRET
+#   srdp-ducklake-s3-reader  DUCKLAKE_S3_KEY_ID, DUCKLAKE_S3_SECRET
+#                            (both only with ducklakeStorage.backend: s3)
+#   srdp-garage              rpc-secret, admin-token (only with garage.enabled)
 localSecrets:
   enabled: false
 
@@ -334,6 +338,9 @@ dagster:
         volumeMounts:
           - name: ducklake-data
             mountPath: /data/ducklake
+        # DUCKLAKE_STORAGE_BACKEND and the S3 settings, see ducklakeStorage.
+        envConfigMaps:
+          - name: srdp-ducklake-storage
         env:
           - name: DUCKLAKE_PG_HOST
             value: db-postgresql
@@ -348,6 +355,21 @@ dagster:
             value: ducklake
           - name: DUCKLAKE_DATA_PATH
             value: /data/ducklake
+          # The writer key, for DUCKLAKE_STORAGE_BACKEND=s3. Optional, so
+          # local storage needs no such Secret. Only this code location and
+          # its run pods hold it, the apps get the read-only key.
+          - name: DUCKLAKE_S3_KEY_ID
+            valueFrom:
+              secretKeyRef:
+                name: srdp-ducklake-s3-writer
+                key: DUCKLAKE_S3_KEY_ID
+                optional: true
+          - name: DUCKLAKE_S3_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: srdp-ducklake-s3-writer
+                key: DUCKLAKE_S3_SECRET
+                optional: true
 
 # Marimo app
 marimo:
@@ -371,6 +393,37 @@ ducklakeData:
   size: 4Gi
   accessMode: ReadWriteOnce
   storageClassName: ""
+
+# Where DuckLake keeps its Parquet files, rendered into the
+# srdp-ducklake-storage ConfigMap that every DuckLake consumer reads
+# (templates/ducklake-storage-configmap.yaml). `local` uses the ducklake-data
+# volume above. `s3` uses the bucket below: Dagster and its run pods get the
+# key in the srdp-ducklake-s3-writer Secret, the apps the read-only key in
+# srdp-ducklake-s3-reader. Both Secrets hold DUCKLAKE_S3_KEY_ID and
+# DUCKLAKE_S3_SECRET. values-local-s3.yaml switches kind to the bundled Garage.
+ducklakeStorage:
+  backend: local
+  s3:
+    bucket: ""
+    prefix: ""
+    # Bare host[:port], no scheme; useSsl picks https or http.
+    endpoint: ""
+    urlStyle: path
+    region: ""
+    useSsl: true
+
+# Garage, an S3-compatible server for testing DuckLake on S3 in kind. Not for
+# production. templates/garage.yaml runs it with one node and a setup Job that
+# creates the ducklakeStorage.s3 bucket and the writer and reader keys from the
+# srdp-ducklake-s3-* Secrets. Its own RPC secret and admin token come from the
+# srdp-garage Secret (keys rpc-secret, admin-token).
+garage:
+  enabled: false
+  image:
+    repository: dxflrs/garage
+    tag: "v2.4.1"
+    pullPolicy: IfNotPresent
+  size: 4Gi
 
 # Quarto app
 # Disabled by default: heavy build (Pandoc/TinyTeX/Deno toolchain) for no

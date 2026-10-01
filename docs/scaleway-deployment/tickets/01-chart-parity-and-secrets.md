@@ -170,6 +170,8 @@ In kind, `templates/local-secrets.yaml` creates them from `localSecrets` in `val
 | `srdp-oauth2-proxy` | `client-id`, `client-secret`, `cookie-secret` | oauth2-proxy |
 | `srdp-dagster-postgresql` | `postgresql-password` | Dagster webserver, daemon, code location, run pods and srdp-setup |
 | `srdp-marquez` | `db-password` | Marquez and srdp-setup |
+| `srdp-ducklake-s3-writer` | `DUCKLAKE_S3_KEY_ID`, `DUCKLAKE_S3_SECRET` | Dagster code location and run pods, only with `ducklakeStorage.backend: s3` (added in ticket 2) |
+| `srdp-ducklake-s3-reader` | `DUCKLAKE_S3_KEY_ID`, `DUCKLAKE_S3_SECRET` | marimo, streamlit, api and duckdb-ui, only with `ducklakeStorage.backend: s3` (added in ticket 2) |
 
 The two database passwords inside `config-yaml` must equal `password` and `postgres-password` in `srdp-postgres`.
 

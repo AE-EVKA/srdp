@@ -150,7 +150,7 @@ The places where a mistake does the most damage.
 | 1a | 1 | Chart matches Compose | |
 | 1b | 1 | Secrets and registry from outside the chart | 1a |
 | 2a | 2 | `S3StorageBackend` with tests, off by default | |
-| 2b | 2 | Wire Compose, MinIO, dbt and the chart to S3 | 1b, 2a |
+| 2b | 2 | Wire Compose, Garage, dbt and the chart to S3 | 1b, 2a |
 | 3a | 3 | Toggles in the blueprint | |
 | 3b | 3 | Dev settings and first apply | 3a |
 | 4a | 4 | Build and push images to the hub registry | 1b, 3b |

@@ -48,6 +48,36 @@ equivalent of the DUCKLAKE_* block on each app in docker-compose.yml.
   value: ducklake
 - name: DUCKLAKE_DATA_PATH
   value: {{ .Values.ducklakeData.mountPath | quote }}
+{{ include "srdp.ducklakeS3Key" "srdp-ducklake-s3-reader" }}
+{{- end -}}
+
+{{/*
+DUCKLAKE_S3_KEY_ID and DUCKLAKE_S3_SECRET from the given role Secret. The
+apps pass srdp-ducklake-s3-reader: a SQL console runs with the full authority
+of its S3 key, so only Dagster gets the writer key (values.yaml). Optional, so
+local storage needs no such Secret.
+*/}}
+{{- define "srdp.ducklakeS3Key" -}}
+- name: DUCKLAKE_S3_KEY_ID
+  valueFrom:
+    secretKeyRef:
+      name: {{ . }}
+      key: DUCKLAKE_S3_KEY_ID
+      optional: true
+- name: DUCKLAKE_S3_SECRET
+  valueFrom:
+    secretKeyRef:
+      name: {{ . }}
+      key: DUCKLAKE_S3_SECRET
+      optional: true
+{{- end -}}
+
+{{/*
+DUCKLAKE_STORAGE_BACKEND and the S3 settings, one source for every consumer.
+*/}}
+{{- define "srdp.ducklakeEnvFrom" -}}
+- configMapRef:
+    name: srdp-ducklake-storage
 {{- end -}}
 
 {{/*

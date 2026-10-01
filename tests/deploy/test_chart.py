@@ -109,9 +109,22 @@ DEV_CREDENTIALS = (
     "VQMve4Thh857uplEKmN5nlcgSedaGyYQySSDYyoMgfk4d1PS8k6zUDSdhOdo3IVW",
     "6wdizcEbBnztdVvVoFwbSzHBfWYdBJshIOP6VlsxrDe5c1zSUQMvgDa6PfnA24BT",
     "VcZnfAWYCgMfNjRLvM1byUaAUs2jSvSE",
+    "1" * 64,
+    "2" * 64,
+    "3" * 64,
+    "srdpLocalGarageAdmin",
 )
 
-LOCAL_SECRETS = {"srdp-postgres", "srdp-zitadel", "srdp-oauth2-proxy", "srdp-dagster-postgresql", "srdp-marquez"}
+LOCAL_SECRETS = {
+    "srdp-postgres",
+    "srdp-zitadel",
+    "srdp-oauth2-proxy",
+    "srdp-dagster-postgresql",
+    "srdp-marquez",
+    "srdp-ducklake-s3-writer",
+    "srdp-ducklake-s3-reader",
+    "srdp-garage",
+}
 
 
 def test_values_yaml_holds_no_credentials() -> None:
@@ -194,3 +207,75 @@ def test_writers_and_readers_mount_ducklake_data_at_the_same_path(local: list[Ma
         container = find(local, "Deployment", name)["spec"]["template"]["spec"]["containers"][0]
         paths |= {e["value"] for e in container["env"] if e["name"] == "DUCKLAKE_DATA_PATH"}
     assert len(paths) == 1, paths
+
+
+# DuckLake on S3 (ticket 02, PR 2b). values-local-s3.yaml switches kind to the
+# bundled Garage server. A SQL console runs with the full authority of its S3
+# key, so the four apps must only ever see the read-only key.
+DUCKLAKE_WRITER = "srdp-dagster-user-deployments-srdp-etl"
+DUCKLAKE_READERS = ["api", "duckdb-ui", "marimo", "streamlit"]
+READER_KEY = "srdp-ducklake-s3-reader"
+WRITER_KEY = "srdp-ducklake-s3-writer"
+
+
+@pytest.fixture(scope="module")
+def local_s3() -> list[Manifest]:
+    """Render the chart the way `just local-deploy -f srdp-chart/values-local-s3.yaml` does."""
+    return render("values.yaml", "values-local.yaml", "values-local-s3.yaml")
+
+
+def s3_key_refs(env: list[Manifest]) -> list[Manifest]:
+    """Return the secretKeyRef of every DUCKLAKE_S3_* variable in an env list."""
+    return [e["valueFrom"]["secretKeyRef"] for e in env if e["name"].startswith("DUCKLAKE_S3_") and "valueFrom" in e]
+
+
+def run_pod_env(manifests: list[Manifest]) -> list[Manifest]:
+    """Return the env the Dagster code location hands to every run pod it launches."""
+    container = find(manifests, "Deployment", DUCKLAKE_WRITER)["spec"]["template"]["spec"]["containers"][0]
+    context = next(e["value"] for e in container["env"] if e["name"] == "DAGSTER_CLI_API_GRPC_CONTAINER_CONTEXT")
+    return yaml.safe_load(context)["k8s"]["env"]
+
+
+@pytest.mark.parametrize("name", DUCKLAKE_READERS)
+def test_s3_apps_get_only_the_read_only_key(local_s3: list[Manifest], name: str) -> None:
+    spec = find(local_s3, "Deployment", name)["spec"]["template"]["spec"]
+    refs = [ref for c in containers(spec) for ref in s3_key_refs(c.get("env", []))]
+    assert {ref["name"] for ref in refs} == {READER_KEY}
+    assert WRITER_KEY not in yaml.safe_dump(spec)
+
+
+def test_s3_dagster_and_its_run_pods_get_only_the_writer_key(local_s3: list[Manifest]) -> None:
+    spec = find(local_s3, "Deployment", DUCKLAKE_WRITER)["spec"]["template"]["spec"]
+    refs = s3_key_refs(spec["containers"][0]["env"])
+    assert {ref["name"] for ref in refs} == {WRITER_KEY}
+    assert {ref["name"] for ref in s3_key_refs(run_pod_env(local_s3))} == {WRITER_KEY}
+    assert READER_KEY not in yaml.safe_dump(spec)
+
+
+@pytest.mark.parametrize("name", [DUCKLAKE_WRITER, *DUCKLAKE_READERS])
+def test_every_ducklake_consumer_reads_one_storage_config(local_s3: list[Manifest], name: str) -> None:
+    container = find(local_s3, "Deployment", name)["spec"]["template"]["spec"]["containers"][0]
+    assert {"configMapRef": {"name": "srdp-ducklake-storage"}} in container["envFrom"]
+    storage = find(local_s3, "ConfigMap", "srdp-ducklake-storage")["data"]
+    assert storage["DUCKLAKE_STORAGE_BACKEND"] == "s3"
+    assert storage["DUCKLAKE_S3_ENDPOINT"] == "garage:3900"
+
+
+def test_local_storage_stays_the_default_and_needs_no_s3_key(local: list[Manifest]) -> None:
+    assert find(local, "ConfigMap", "srdp-ducklake-storage")["data"]["DUCKLAKE_STORAGE_BACKEND"] == "local"
+    for name in [DUCKLAKE_WRITER, *DUCKLAKE_READERS]:
+        container = find(local, "Deployment", name)["spec"]["template"]["spec"]["containers"][0]
+        assert all(ref["optional"] is True for ref in s3_key_refs(container["env"])), name
+    assert all(ref["optional"] is True for ref in s3_key_refs(run_pod_env(local)))
+    assert not [m for m in local if m["kind"] in {"Deployment", "StatefulSet"} and m["metadata"]["name"] == "garage"]
+
+
+def test_s3_garage_accepts_exactly_the_keys_the_consumers_get(local_s3: list[Manifest]) -> None:
+    env = find(local_s3, "Job", "garage-setup")["spec"]["template"]["spec"]["containers"][0]["env"]
+    refs = {e["name"]: e["valueFrom"]["secretKeyRef"] for e in env if "valueFrom" in e}
+    assert refs["GARAGE_WRITER_KEY_ID"] == {"name": WRITER_KEY, "key": "DUCKLAKE_S3_KEY_ID"}
+    assert refs["GARAGE_WRITER_SECRET"] == {"name": WRITER_KEY, "key": "DUCKLAKE_S3_SECRET"}
+    assert refs["GARAGE_READER_KEY_ID"] == {"name": READER_KEY, "key": "DUCKLAKE_S3_KEY_ID"}
+    assert refs["GARAGE_READER_SECRET"] == {"name": READER_KEY, "key": "DUCKLAKE_S3_SECRET"}
+    storage = find(local_s3, "ConfigMap", "srdp-ducklake-storage")["data"]
+    assert next(e["value"] for e in env if e["name"] == "GARAGE_BUCKET") == storage["DUCKLAKE_S3_BUCKET"]

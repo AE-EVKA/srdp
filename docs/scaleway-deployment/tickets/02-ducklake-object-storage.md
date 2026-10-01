@@ -1,6 +1,6 @@
 # 02: DuckLake on object storage
 
-**What to build:** with one setting, DuckLake writes its Parquet files to S3-compatible object storage instead of a local folder. Dagster and dbt write with a writer key, and marimo, streamlit, the api and duckdb-ui read the same data back with a read-only key. This works in the Compose stack and in kind, against a local MinIO. Without that setting everything keeps working as it does today.
+**What to build:** with one setting, DuckLake writes its Parquet files to S3-compatible object storage instead of a local folder. Dagster and dbt write with a writer key, and marimo, streamlit, the api and duckdb-ui read the same data back with a read-only key. This works in the Compose stack and in kind, against a local Garage server. Without that setting everything keeps working as it does today.
 
 **Blocked by:** 01 (Chart parity and external secrets).
 
@@ -8,12 +8,13 @@
 
 **Status:** ready-for-agent
 
-- [ ] With `DUCKLAKE_STORAGE_BACKEND=s3` a Dagster run writes Parquet to the MinIO bucket.
+- [ ] With `DUCKLAKE_STORAGE_BACKEND=s3` a Dagster run writes Parquet to the Garage bucket.
 - [ ] dbt models write to the same lake.
 - [ ] All four apps read that data back, in Compose and in kind.
 - [ ] With `DUCKLAKE_STORAGE_BACKEND=local` (the default) the stack behaves exactly as before.
 - [ ] Unit tests cover building the S3 path and choosing between the backends.
-- [ ] The query-serving apps hold only a read-only key, scoped to the lake prefix. Only the Dagster code server and dbt hold the writer key.
+- [ ] The query-serving apps hold only a read-only key, scoped to the lake. Only the Dagster code server and dbt hold the writer key, plus the local Garage setup step that imports it.
+  Garage scopes a key to a bucket, so locally the lake has its own bucket; in the cloud a bucket policy scopes the key to the lake prefix (ticket 6).
 - [ ] A write from duckdb-ui to the bucket fails with an access error.
 - [ ] The DuckDB secret and the dbt connection get their S3 settings and data path from the backend, not from their own copy. `profiles.yml` contains no endpoint, URL style, key or bucket.
 - [ ] The dlt helper is covered by a unit test. This repo has no dlt pipeline, so the helper is used downstream, and the PR description says so.
@@ -29,11 +30,11 @@ Put the verified DuckDB settings for Scaleway in the description, with a link to
 The reviewer focuses on the naming of the settings, because those names come back in Compose, the chart and Secret Manager.
 This PR can start right away, in parallel with ticket 1.
 
-**PR 2b: wire Compose, MinIO, dbt and the chart.**
-This PR passes the new variables to the five DuckLake consumers in Compose and in the chart, adds MinIO as an optional service with a reader and a writer user, and switches the dbt profile to the plugin from 2a.
+**PR 2b: wire Compose, Garage, dbt and the chart.**
+This PR passes the new variables to the five DuckLake consumers in Compose and in the chart, adds Garage as an optional service with a reader and a writer key, and switches the dbt profile to the plugin from 2a.
 The writers get the writer key, and the four apps get the reader key.
 The description says `Closes #56`.
-Test in Compose and in kind with `DUCKLAKE_STORAGE_BACKEND=s3`, and put a screenshot of the MinIO bucket in the description.
+Test in Compose and in kind with `DUCKLAKE_STORAGE_BACKEND=s3`, and put the list of Parquet files in the Garage bucket in the description.
 The reviewer checks that the stack works unchanged with `local`, and that no read-only app has the writer key in its environment.
 2b is blocked by 1b and 2a.
 
@@ -63,7 +64,8 @@ A SQL console like duckdb-ui must therefore hold a key that can only read, and o
 The backend becomes the one place that knows the endpoint, the URL style and the keys, and the three consumers ask it.
 
 This is the riskiest new code in the whole plan.
-That is why we test it locally against MinIO, a free S3 server in a container, before anything happens in the cloud.
+That is why we test it locally against Garage, a free S3 server in a container, before anything happens in the cloud.
+The plan first named MinIO, but MinIO stopped publishing its Docker images, so PR 2b switched to Garage.
 
 ## What happens, step by step
 
@@ -80,15 +82,15 @@ These answers were checked against the official documentation during PR 2a.
   A bucket name with a dot needs `path`, because the wildcard certificate `*.s3.nl-ams.scw.cloud` does not cover it ([FAQ](https://www.scaleway.com/en/docs/object-storage/faq/)).
 - `REGION` defaults to `us-east-1` and is used to sign requests.
   Scaleway signs with the region slug, for example `nl-ams` ([signature docs](https://www.scaleway.com/en/docs/object-storage/api-cli/generate-aws4-auth-signature/)).
-- MinIO only accepts `path` unless `MINIO_DOMAIN` is set, and its default region is `us-east-1`.
+- Garage, the local test server, uses `path` style and signs with the region in its `s3_region` setting, `garage` in this repo.
 - From a Private Network, Kapsule can use the private endpoint `s3-vpc.<region>.scw.eu` instead of the public one ([docs](https://www.scaleway.com/en/docs/object-storage/how-to/use-obj-stor-with-private-networks/)).
   Ticket 6 decides which one to use.
 
-| Setting | Scaleway (nl-ams) | MinIO in Compose |
+| Setting | Scaleway (nl-ams) | Garage in Compose and kind |
 |:---|:---|:---|
-| `DUCKLAKE_S3_ENDPOINT` | `s3.nl-ams.scw.cloud` | `minio:9000` |
+| `DUCKLAKE_S3_ENDPOINT` | `s3.nl-ams.scw.cloud` | `garage:3900` |
 | `DUCKLAKE_S3_URL_STYLE` | `vhost` (or `path` for a dotted bucket name) | `path` |
-| `DUCKLAKE_S3_REGION` | `nl-ams` | `us-east-1` |
+| `DUCKLAKE_S3_REGION` | `nl-ams` | `garage` |
 | `DUCKLAKE_S3_USE_SSL` | `true` | `false` |
 
 ### 2. Write the S3 backend
@@ -141,13 +143,18 @@ After this change `profiles.yml` contains no endpoint, URL style, key, bucket or
 So a new variable does not reach the containers by itself.
 Add the new variables to all five DuckLake consumers (dagster-code, marimo, streamlit, api and duckdb-ui), and to `.env.example`.
 
-Add MinIO as an optional Compose service, with a bucket that is created automatically.
-Create two MinIO users with a policy each: a writer that may read and write the lake prefix, and a reader that may only read it.
+Add Garage as an optional Compose service in an `s3` profile, with a bucket that is created automatically.
+A setup step imports two keys.
+The writer may read and write the bucket, and the reader may only read it.
+Garage grants rights per bucket, not per prefix, so the lake gets its own bucket.
+The Garage image has no shell, so the setup talks to Garage's admin API from `src/srdp/setup/garage.py`.
 Give dagster-code the writer pair as `DUCKLAKE_S3_KEY_ID` and `DUCKLAKE_S3_SECRET`, and the other four the reader pair under the same names.
 The keys are secrets, so they follow [ADR-0010](../../adr/0010-secret-management.md).
 
 Do the same in the chart.
-Pass the variables to the same five apps, and read the keys from a Secret, as in ticket 1.
+A `ducklakeStorage` block in `values.yaml` renders one `srdp-ducklake-storage` ConfigMap that all five consumers read.
+The keys come from two Secrets, `srdp-ducklake-s3-writer` for Dagster and its run pods and `srdp-ducklake-s3-reader` for the apps.
+`values-local-s3.yaml` switches kind to S3 and turns on the bundled Garage.
 
 ### 6. Tests
 
@@ -162,12 +169,12 @@ Follow the existing patterns in `tests/`.
 
 ## How to check that it works
 
-Set `DUCKLAKE_STORAGE_BACKEND=s3` in `deploy/docker/.env`, start the stack with `just docker-up`, and start a Dagster run.
-Then open the MinIO web interface and check that Parquet files are in the bucket.
+Set `COMPOSE_PROFILES=s3` and `DUCKLAKE_STORAGE_BACKEND=s3` in `deploy/docker/.env`, fill in the writer and reader key and Garage's own `GARAGE_RPC_SECRET` and `GARAGE_ADMIN_TOKEN` (see `.env.example`), start the stack with `just docker-up`, and start a Dagster run.
+Then list the bucket with the writer key and check that Parquet files are in it.
 Check in the four apps that they show the data.
 In duckdb-ui, try `COPY (SELECT 1) TO 's3://<bucket>/<prefix>/test.parquet'` and check that it fails with an access error.
 
-Repeat this in kind with `just local-deploy`, with the same setting in `values-local.yaml`.
+Repeat this in kind with `just local-deploy -f srdp-chart/values-local-s3.yaml`.
 
 Set the value back to `local` and check that the stack still works as before.
 

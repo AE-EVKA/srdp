@@ -20,7 +20,7 @@
 ## PRs
 
 **PR 6: DuckLake in the cloud writing to the bucket.**
-This PR sets `DUCKLAKE_STORAGE_BACKEND=s3` in the HelmRelease, fills in the bucket details, extends the blueprint with a read-only lakehouse key, adds the ExternalSecrets for the reader and writer keys, and sends Dagster runs to the compute pool.
+This PR sets `ducklakeStorage.backend: s3` in the HelmRelease, fills in the bucket details, extends the blueprint with a read-only lakehouse key, adds the ExternalSecrets for the reader and writer keys, and sends Dagster runs to the compute pool.
 It is a small PR, but it deploys on merge.
 After the rollout, paste screenshots of the successful run in Dagster, of the files in the bucket, and of the lineage in Marquez as a comment on the PR.
 The demo description can go in the same PR, as a short text in the ticket.
@@ -43,9 +43,10 @@ In the blueprint such a pod lands on the compute pool, which starts a heavy node
 The blueprint has created a lakehouse bucket, and keys that may read and write there.
 Those keys live in Secret Manager as `srdp-dev-lakehouse-access-key` and `srdp-dev-lakehouse-secret-key`.
 
-- Set `DUCKLAKE_STORAGE_BACKEND` to `s3` in the HelmRelease values.
-- Fill in the bucket name, the endpoint and the region.
-- Have External Secrets put the keys in the Secrets the chart has expected since ticket 2.
+- Set `ducklakeStorage.backend` to `s3` in the HelmRelease values.
+- Fill in `ducklakeStorage.s3`: the bucket name, a prefix per environment, the endpoint and the region.
+- Have External Secrets create `srdp-ducklake-s3-writer` and `srdp-ducklake-s3-reader`, each with the keys `DUCKLAKE_S3_KEY_ID` and `DUCKLAKE_S3_SECRET`.
+  The chart has read these names since ticket 2.
 
 Ticket 2 splits the keys into a writer pair and a reader pair, following #56.
 The blueprint only creates the writer pair so far.

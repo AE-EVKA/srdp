@@ -15,6 +15,8 @@ global:
 # (srdp-postgres, srdp-zitadel, srdp-oauth2-proxy, srdp-dagster-postgresql,
 # srdp-marquez) before installing, e.g. with External Secrets. srdp-postgres
 # also needs replication-password here, because of architecture: replication.
+# With ducklakeStorage.backend: s3, also create srdp-ducklake-s3-writer and
+# srdp-ducklake-s3-reader, each with DUCKLAKE_S3_KEY_ID and DUCKLAKE_S3_SECRET.
 
 # Traefik
 traefik:
@@ -252,6 +254,9 @@ dagster:
         volumeMounts:
           - name: ducklake-data
             mountPath: /data/ducklake
+        # DUCKLAKE_STORAGE_BACKEND and the S3 settings, see ducklakeStorage.
+        envConfigMaps:
+          - name: srdp-ducklake-storage
         env:
           - name: DUCKLAKE_PG_HOST
             value: db-postgresql-primary
@@ -266,3 +271,18 @@ dagster:
             value: ducklake
           - name: DUCKLAKE_DATA_PATH
             value: /data/ducklake
+          # The writer key, for DUCKLAKE_STORAGE_BACKEND=s3. Optional, so
+          # local storage needs no such Secret. Only this code location and
+          # its run pods hold it, the apps get the read-only key.
+          - name: DUCKLAKE_S3_KEY_ID
+            valueFrom:
+              secretKeyRef:
+                name: srdp-ducklake-s3-writer
+                key: DUCKLAKE_S3_KEY_ID
+                optional: true
+          - name: DUCKLAKE_S3_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: srdp-ducklake-s3-writer
+                key: DUCKLAKE_S3_SECRET
+                optional: true
