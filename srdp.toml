@@ -1,0 +1,20 @@
+# Central platform config (#42). Never holds secrets.
+# The chart keeps its own copy of [setup] in setup.databases, keep them in step.
+
+[setup]
+
+[[setup.databases]]
+name = "zitadel"
+role = "zitadel"
+
+[[setup.databases]]
+name = "dagster"
+role = "dagster"
+
+[[setup.databases]]
+name = "marquez"
+role = "marquez"
+
+# DuckLake connects as the superuser (DUCKLAKE_PG_USER=postgres).
+[[setup.databases]]
+name = "ducklake"

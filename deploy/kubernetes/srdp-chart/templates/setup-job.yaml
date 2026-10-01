@@ -1,0 +1,54 @@
+{{- if .Values.setup.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: srdp-setup
+  annotations:
+    # Post-install because Postgres doesn't exist yet during pre-install. Consumers
+    # block on this Job, so `helm --wait`/`--atomic` would deadlock.
+    helm.sh/hook: post-install,post-upgrade
+    # Before zitadel-init (-5), so a Zitadel failure can't block the databases.
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 240
+  template:
+    spec:
+      restartPolicy: OnFailure
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: srdp-setup
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          image: "{{ .Values.setup.image.repository }}:{{ .Values.setup.image.tag }}"
+          imagePullPolicy: {{ .Values.setup.image.pullPolicy }}
+          env:
+            - name: SETUP_PG_HOST
+              value: {{ .Values.global.postgresqlHost | quote }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: db-postgresql
+                  key: postgres-password
+            - name: SETUP_PASSWORDS__DAGSTER
+              value: {{ .Values.dagster.postgresql.postgresqlPassword | quote }}
+            - name: SETUP_PASSWORDS__MARQUEZ
+              value: {{ .Values.marquez.dbPassword | quote }}
+          volumeMounts:
+            - name: setup-config
+              mountPath: /etc/srdp
+              readOnly: true
+      volumes:
+        - name: setup-config
+          configMap:
+            name: srdp-setup-config
+{{- end }}

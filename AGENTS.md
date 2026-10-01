@@ -30,6 +30,7 @@ srdp/
 ## Hard rules
 
 - Never commit secrets (`.env`, `secrets.sh`, `values-prod.yaml`, `kubeconfig.yaml`).
+- Never hardcode credentials or other identifying values (passwords, IP addresses, hostnames tied to a specific environment) directly in scripts, manifests, or app config. Source them from env vars, `.env`, or chart values, even when a target app's own defaults make a literal look unavoidable, verify that first instead of assuming it.
 - Always use `just` as the task runner and `uv` as the package manager.
 - No `pip`, `conda`, or `requirements.txt`.
 - No `from __future__ import annotations`. Use native type hints (`str | None`, `list[int]`).
@@ -44,6 +45,7 @@ srdp/
 - Local domains are `*.srdp.localhost`, not `.local.dev`. The `.localhost` TLD auto-resolves to loopback, so no `/etc/hosts` edit is needed.
 - Branch names: `<type>/<issue-number>-<short-slug>` (e.g. `fix/123-short-desc`), `<type>` = Conventional Commits type. Open an issue first if none exists.
 - Review scripts/workflows/manifests for: injection (unquoted dynamic values in shell/query/template), least privilege (minimum access for containers/credentials/grants), state consistency (mirrored values updated together), failure ordering (validate before mutating).
+- Docker Compose and Kubernetes are both always in scope for deployment changes, never just one. Building or fixing something for one target without the other is how they diverge.
 
 ## Markdown
 

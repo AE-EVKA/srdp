@@ -1,3 +1,10 @@
+x-ducklake-depends: &ducklake-depends
+  depends_on:
+    srdp-setup:
+      condition: service_completed_successfully
+    postgres:
+      condition: service_healthy
+
 services:
   # ---------------------------------------------
   # Shared PostgreSQL
@@ -8,10 +15,6 @@ services:
     container_name: srdp-postgres
     environment:
       POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
-      # Read by initdb/01-create-databases.sh on first boot only, to create the
-      # zitadel/dagster roles without a literal password committed there.
-      ZITADEL_DATABASE_POSTGRES_USER_PASSWORD: "${ZITADEL_DATABASE_POSTGRES_USER_PASSWORD}"
-      DAGSTER_PG_PASSWORD: "${DAGSTER_PG_PASSWORD}"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
@@ -22,7 +25,31 @@ services:
       - db
     volumes:
       - pgdata:/var/lib/postgresql/data:rw
-      - ./initdb:/docker-entrypoint-initdb.d:ro
+
+  # ---------------------------------------------
+  # Setup: database/role bootstrap from srdp.toml [setup]
+  # ---------------------------------------------
+  srdp-setup:
+    build:
+      context: ../../
+      dockerfile: deploy/docker/srdp-setup.Dockerfile
+    container_name: srdp-setup
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      SETUP_PG_HOST: postgres
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
+      SETUP_PASSWORDS__ZITADEL: "${ZITADEL_DATABASE_POSTGRES_USER_PASSWORD}"
+      SETUP_PASSWORDS__DAGSTER: "${DAGSTER_PG_PASSWORD}"
+      SETUP_PASSWORDS__MARQUEZ: "${MARQUEZ_DB_PASSWORD}"
+    volumes:
+      - "../../srdp.toml:/etc/srdp/srdp.toml:ro"
+    networks:
+      - db
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   # ---------------------------------------------
   # Reverse Proxy
@@ -81,6 +108,8 @@ services:
     container_name: srdp-zitadel-init
     command: init
     depends_on:
+      srdp-setup:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
     environment:
@@ -250,6 +279,8 @@ services:
     volumes:
       - ducklake-data:/data/ducklake
     depends_on:
+      srdp-setup:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
     command:
@@ -264,6 +295,7 @@ services:
   # Marimo App
   # ---------------------------------------------
   marimo:
+    <<: *ducklake-depends
     build:
       context: ../../
       dockerfile: projects/cbs-example/notebooks/Dockerfile
@@ -284,6 +316,7 @@ services:
   # Streamlit Dashboard
   # ---------------------------------------------
   streamlit:
+    <<: *ducklake-depends
     build:
       context: ../../
       dockerfile: projects/cbs-example/streamlit/Dockerfile
@@ -304,6 +337,7 @@ services:
   # FastAPI — basic read-only info on the catalog and Dagster
   # ---------------------------------------------
   api:
+    <<: *ducklake-depends
     build:
       context: ../../
       dockerfile: projects/cbs-example/api/Dockerfile
@@ -320,14 +354,12 @@ services:
       - db
     volumes:
       - ducklake-data:/data/ducklake:ro
-    depends_on:
-      postgres:
-        condition: service_healthy
 
   # ---------------------------------------------
   # DuckDB UI — ad hoc queries against the DuckLake catalog
   # ---------------------------------------------
   duckdb-ui:
+    <<: *ducklake-depends
     build:
       context: ../../
       dockerfile: services/duckdb-ui/Dockerfile
@@ -343,9 +375,6 @@ services:
       - db
     volumes:
       - ducklake-data:/data/ducklake:ro
-    depends_on:
-      postgres:
-        condition: service_healthy
 
   # ---------------------------------------------
   # Marquez (OpenLineage backend + UI)
@@ -354,13 +383,18 @@ services:
     image: marquezproject/marquez:latest
     container_name: srdp-marquez
     environment:
+      MARQUEZ_CONFIG: /etc/marquez/marquez.yml
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
-      SEARCH_ENABLED: false
+      MARQUEZ_DB_PASSWORD: "${MARQUEZ_DB_PASSWORD}"
+    volumes:
+      - ./marquez.yml:/etc/marquez/marquez.yml:ro
     networks:
       - app
       - db
     depends_on:
+      srdp-setup:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
 

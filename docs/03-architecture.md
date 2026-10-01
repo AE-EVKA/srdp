@@ -18,7 +18,7 @@ Both deployment targets (Docker Compose and Helm) run the same logical services.
 | `srdp-zitadel-login` | Hosted login UI | `ghcr.io/zitadel/zitadel-login:v4.2.2` | Separate Next.js app since Zitadel v4 |
 | `srdp-oauth2-proxy` | Forward-auth middleware | `quay.io/oauth2-proxy/oauth2-proxy:v7.6.0` | |
 | `srdp-dagster-code` | User pipeline code (gRPC) | Built from `projects/cbs-example/Dockerfile` | Separate so pipeline code can update independently |
-| `srdp-dagster-webserver` | Orchestration UI | Built from `deploy/docker/dagster-webserver.Dockerfile` | No source code — connects to code server over gRPC |
+| `srdp-dagster-webserver` | Orchestration UI | Built from `deploy/docker/dagster-webserver.Dockerfile` | No source code, connects to code server over gRPC |
 | `srdp-dagster-daemon` | Schedule & sensor execution | Same image as webserver | Must be a separate process per Dagster's architecture |
 | `srdp-marimo` | Reactive notebook app | Built from `projects/cbs-example/notebooks/` | App content is tenant-owned, unlike quarto's generic runtime |
 | `srdp-quarto` | Static reporting site | Built from `services/quarto/` | |
@@ -131,9 +131,9 @@ So a data contract is **not** attached inside Zitadel; it is a separate artifact
 
 The access model uses a small, fixed vocabulary; keeping the terms separate is what keeps it simple.
 
-- **Deployment** — the broadest scope and the strongest isolation boundary. One SRDP instance with its own Zitadel, storage, and PostgreSQL. Nothing crosses a deployment (no tenant, project, grant, or contract); separate deployments are independent islands.
-- **Tenant** — an organization (a Zitadel Organization), and the single subject-org term. Each tenant has **principals**: users (people) and service keys (machine-to-machine). One tenant is the **deployment owner**: it owns the deployment and decides single vs multi tenancy and the project landscape; other tenants are admitted as participants. A deployment hosts one or many tenants at the owner's choice. Single-tenant is the recommended default for hard isolation; co-hosted tenants are separated by catalog/project plus RBAC, which is softer than separate deployments.
-- **Project** — one DuckLake catalog plus its Dagster code location. Owned by a tenant; the data and pipeline unit. A deployment may also attach non-project catalogs (shared reference data), so not every catalog is a project.
+- **Deployment**: the broadest scope and the strongest isolation boundary. One SRDP instance with its own Zitadel, storage, and PostgreSQL. Nothing crosses a deployment (no tenant, project, grant, or contract); separate deployments are independent islands.
+- **Tenant**: an organization (a Zitadel Organization), and the single subject-org term. Each tenant has **principals**: users (people) and service keys (machine-to-machine). One tenant is the **deployment owner**: it owns the deployment and decides single vs multi tenancy and the project landscape; other tenants are admitted as participants. A deployment hosts one or many tenants at the owner's choice. Single-tenant is the recommended default for hard isolation; co-hosted tenants are separated by catalog/project plus RBAC, which is softer than separate deployments.
+- **Project**: a bundle of Dagster code locations, services and endpoints (see [ADR-0011](adr/0011-project-onboarding-and-extension.md)). Owned by a tenant; the data and pipeline unit. It shares its tenant's DuckLake catalog by default and can be split into its own. A deployment may also attach non-project catalogs (shared reference data), so not every catalog is a project.
 
 A *consumer* is not a separate entity: it is a participant tenant whose access is contract-scoped read (the shared-BI mode).
 
@@ -267,21 +267,23 @@ Local development uses `*.srdp.localhost` with mkcert certificates:
 
 ### Databases
 
-One shared PostgreSQL instance. Each service gets its own database and user, created by `deploy/docker/initdb/01-create-databases.sql`:
+One shared PostgreSQL instance. Each service gets its own database and user, created by the `srdp-setup` service from the `[setup]` table in the repo-root `srdp.toml` (Compose) or `setup.databases` in the chart's `values.yaml` (Kubernetes):
 
 | Database | User | Used by |
 |:---|:---|:---|
 | `zitadel` | `zitadel` | Zitadel identity provider |
 | `dagster` | `dagster` | Dagster run/event storage |
-| `ducklake` | `postgres` | DuckLake catalog metadata (per-project schemas) |
+| `marquez` | `marquez` | Marquez lineage storage |
+| `ducklake` | `postgres` | DuckLake catalog metadata (one schema per catalog) |
 
-The `ducklake` database is **not** created by the init script. The DuckLake IO manager creates it on first use (`ensure_database` in `src/srdp/io/ducklake.py`), and each project gets its own metadata schema within it (for example `ducklake_sales`, see [ADR-0006](adr/0006-deployment-and-project-isolation-model.md)). All three databases live in the single PostgreSQL instance, so one backup covers them.
+Each DuckLake catalog gets its own metadata schema within `ducklake`. By default a tenant's projects share one catalog, and a project that is split out into a dedicated catalog gets its own schema (for example `ducklake_sales`, see [ADR-0006](adr/0006-deployment-and-project-isolation-model.md)). All four databases live in the single PostgreSQL instance, so one backup covers them.
+On Kubernetes, the Bitnami subchart's `auth.*` fields create `zitadel` instead, so its entry in `setup.databases` is disabled.
 
 ## Component configuration
 
 ### PostgreSQL
 
-Shared across all services. The `initdb/` directory runs SQL scripts on first boot to create per-service databases. Adding a new service database means adding a `CREATE USER` / `CREATE DATABASE` pair to the init script.
+Shared across all services. The `srdp-setup` service (`src/srdp/setup/`) creates the per-service databases and roles before any consumer starts, and it resets each role's password on every run, so it also repairs an existing volume. Adding a new service database means adding an entry to both the `[setup]` table in `srdp.toml` and the chart's `setup.databases`, plus a `SETUP_PASSWORDS__<ROLE>` env var on the setup service if the entry has its own role.
 
 ### Traefik
 
@@ -299,16 +301,16 @@ Shared across all services. The `initdb/` directory runs SQL scripts on first bo
 ### OAuth2-Proxy
 
 - Configured as a Traefik forward-auth middleware (`zitadel-auth`).
-- Protects all app services (Marimo, Quarto, Dagster) — requests are redirected to Zitadel for OIDC login.
+- Protects all app services (Marimo, Quarto, Dagster). Requests are redirected to Zitadel for OIDC login.
 - The `dagster.srdp.localhost` domain is included in the oauth2-proxy router rule alongside the other app domains.
 
 ### Dagster
 
 Three containers, two images:
 
-- **dagster-webserver** and **dagster-daemon** share an image (`dagster-webserver.Dockerfile`) that installs only the `[infra]` extra — no source code. They connect to the code server over gRPC.
+- **dagster-webserver** and **dagster-daemon** share an image (`dagster-webserver.Dockerfile`) that installs only the `[infra]` extra, with no source code. They connect to the code server over gRPC.
 - **dagster-code** uses the project Dockerfile (`projects/cbs-example/Dockerfile`) which installs the full `srdp` package plus project code. It runs `dagster code-server start` to expose definitions over gRPC.
-- The Helm chart uses `dagsterApiGrpcArgs` to configure the same gRPC server — the Dagster Helm chart manages the command internally, so `code-server` vs `api grpc` only applies to the Docker Compose setup.
+- The Helm chart uses `dagsterApiGrpcArgs` to configure the same gRPC server. The Dagster Helm chart manages the command internally, so `code-server` vs `api grpc` only applies to the Docker Compose setup.
 - `dagster.yaml` configures PostgreSQL storage and the run launcher (`DefaultRunLauncher` locally, `K8sRunLauncher` in production).
 - `workspace.yaml` tells the webserver/daemon where to find the code server (`srdp-dagster-code:3030`).
 
@@ -330,7 +332,7 @@ deploy/
     docker-compose.yml    # Local development stack
     docker-compose.override.yml  # TLS cert mounts
     dagster-webserver.Dockerfile
-    initdb/               # PostgreSQL init scripts
+    srdp-setup.Dockerfile # Database/role bootstrap service
     certs/                # mkcert certificates (gitignored)
   kubernetes/
     srdp-chart/           # Helm umbrella chart

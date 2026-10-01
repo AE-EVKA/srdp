@@ -1,0 +1,9 @@
+{{- if .Values.setup.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: srdp-setup-config
+data:
+  srdp.toml: |
+{{ toToml (dict "setup" (dict "databases" .Values.setup.databases)) | indent 4 }}
+{{- end }}

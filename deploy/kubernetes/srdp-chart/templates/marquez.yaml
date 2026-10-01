@@ -21,6 +21,9 @@ spec:
       # which Marquez's own config expects as a plain integer, crashing on
       # startup. Disable it, nothing here relies on those vars.
       enableServiceLinks: false
+      # The setup hook Job has no ordering guarantee against this Deployment.
+      initContainers:
+        {{- include "srdp.waitForDbLogin" (dict "root" $ "db" "marquez" "user" "marquez" "password" .Values.marquez.dbPassword) | nindent 8 }}
       containers:
         - name: marquez
           image: "{{ .Values.marquez.image.repository }}:{{ .Values.marquez.image.tag }}"
@@ -29,12 +32,22 @@ spec:
             - containerPort: 5000
             - containerPort: 5001
           env:
+            - name: MARQUEZ_CONFIG
+              value: /etc/marquez/marquez.yml
             - name: POSTGRES_HOST
-              value: db-postgresql
+              value: {{ .Values.global.postgresqlHost | quote }}
             - name: POSTGRES_PORT
               value: "5432"
-            - name: SEARCH_ENABLED
-              value: "false"
+            - name: MARQUEZ_DB_PASSWORD
+              value: {{ .Values.marquez.dbPassword | quote }}
+          volumeMounts:
+            - name: marquez-config
+              mountPath: /etc/marquez
+              readOnly: true
+      volumes:
+        - name: marquez-config
+          configMap:
+            name: marquez-config
 ---
 apiVersion: v1
 kind: Service

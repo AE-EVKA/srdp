@@ -68,6 +68,38 @@ dagster:
           pullPolicy: Never
         dagsterApiGrpcArgs: ["-m", "etl.definitions"]
         port: 3030
+        initContainers:
+          - name: wait-for-ducklake-db
+            image: postgres:17-alpine
+            command:
+              - sh
+              - -c
+              - |
+                for i in $(seq 1 60); do
+                  psql -tAc "SELECT 1" >/dev/null && exit 0
+                  echo "waiting for $PGUSER to log in to $PGDATABASE ($i/60)..."
+                  sleep 2
+                done
+                exit 1
+            securityContext:
+              runAsNonRoot: true
+              runAsUser: 70
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop: [ALL]
+            env:
+              - name: PGHOST
+                value: db-postgresql
+              - name: PGUSER
+                value: postgres
+              - name: PGDATABASE
+                value: ducklake
+              - name: PGPASSWORD
+                valueFrom:
+                  secretKeyRef:
+                    name: db-postgresql
+                    key: postgres-password
         env:
           - name: DUCKLAKE_PG_HOST
             value: db-postgresql

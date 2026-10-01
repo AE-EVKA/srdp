@@ -1,6 +1,7 @@
 # Global settings
 global:
   domain: "LOAD_BALANCER_IP.nip.io" # CHANGE THIS to the dedicated domain
+  postgresqlHost: "db-postgresql-primary"
 
 # Traefik
 traefik:
@@ -51,19 +52,8 @@ zitadel-db:
   auth:
     # Keep PostgreSQL admin/user passwords aligned with:
     # - zitadel.zitadel.secretConfig.Database.Postgres
-    # - zitadel-db.primary.initdb.password
     postgresPassword: "CHANGE_ME_POSTGRES_PASS"
     password: "CHANGE_ME_ZITADEL_DB_PASS"
-
-  primary:
-    initdb:
-      user: postgres
-      password: "CHANGE_ME_POSTGRES_PASS"
-      scripts:
-        01-create-dagster.sql: |
-          CREATE USER dagster WITH PASSWORD 'CHANGE_ME_DAGSTER_DB_PASS';
-          CREATE DATABASE dagster OWNER dagster;
-          GRANT ALL PRIVILEGES ON DATABASE dagster TO dagster;
 
   readReplicas:
     replicaCount: 1
@@ -189,6 +179,42 @@ quarto:
 # Dagster app
 dagster:
   enabled: true
+  # Literal host, the subchart doesn't tpl extraPrependedInitContainers.
+  dagsterWebserver:
+    extraPrependedInitContainers: &wait-for-dagster-db-prod
+      - name: wait-for-dagster-db
+        image: postgres:17-alpine
+        command:
+          - sh
+          - -c
+          - |
+            for i in $(seq 1 60); do
+              psql -tAc "SELECT 1" >/dev/null && exit 0
+              echo "waiting for $PGUSER to log in to $PGDATABASE ($i/60)..."
+              sleep 2
+            done
+            exit 1
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 70
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: [ALL]
+        env:
+          - name: PGHOST
+            value: db-postgresql-primary
+          - name: PGUSER
+            value: dagster
+          - name: PGDATABASE
+            value: dagster
+          - name: PGPASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: dagster-postgresql-secret
+                key: postgresql-password
+  dagsterDaemon:
+    extraPrependedInitContainers: *wait-for-dagster-db-prod
   postgresql:
     enabled: false
     postgresqlHost: db-postgresql-primary
@@ -206,6 +232,38 @@ dagster:
           - "-m"
           - "etl.definitions"
         port: 3030
+        initContainers:
+          - name: wait-for-ducklake-db
+            image: postgres:17-alpine
+            command:
+              - sh
+              - -c
+              - |
+                for i in $(seq 1 60); do
+                  psql -tAc "SELECT 1" >/dev/null && exit 0
+                  echo "waiting for $PGUSER to log in to $PGDATABASE ($i/60)..."
+                  sleep 2
+                done
+                exit 1
+            securityContext:
+              runAsNonRoot: true
+              runAsUser: 70
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop: [ALL]
+            env:
+              - name: PGHOST
+                value: db-postgresql-primary
+              - name: PGUSER
+                value: postgres
+              - name: PGDATABASE
+                value: ducklake
+              - name: PGPASSWORD
+                valueFrom:
+                  secretKeyRef:
+                    name: db-postgresql
+                    key: postgres-password
         env:
           - name: DUCKLAKE_PG_HOST
             value: db-postgresql-primary
@@ -218,3 +276,7 @@ dagster:
                 key: postgres-password
           - name: DUCKLAKE_PG_DB
             value: ducklake
+
+# Marquez (OpenLineage backend)
+marquez:
+  dbPassword: "CHANGE_ME_MARQUEZ_DB_PASS"
