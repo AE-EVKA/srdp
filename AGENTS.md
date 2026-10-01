@@ -1,6 +1,6 @@
 # AGENTS.md: SRDP Codebase Guide for AI Coding Assistants
 
-This file describes the structure and rules of the **Single Repo Data Platform (SRDP)** repository.
+This file describes the structure and rules of the **Single-Repo Data Platform (SRDP)** repository.
 
 ---
 

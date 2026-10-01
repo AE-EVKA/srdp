@@ -5,7 +5,8 @@ icon: lucide/locate-fixed
 
 # Local Configuration & Setup
 
-This guide will walk you through the steps to get the Single Repo Data Platform (SRDP) running on your local machine. There are two options:
+This guide will walk you through the steps to get the Single-Repo Data Platform (SRDP) running on your local machine.
+There are two options:
 
 - **Docker Compose**: simplest, no Kubernetes needed, good for trying out the stack locally.
 - **Kubernetes (Helm)**: closer to the production setup, requires a local cluster.
