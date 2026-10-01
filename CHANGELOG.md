@@ -12,6 +12,13 @@ All notable changes to SRDP are documented here. The format follows [Keep a Chan
 - Streamlit in the Helm chart, behind the login on `streamlit.<domain>`.
 - A shared `ducklake-data` volume in the chart, so the apps read the Parquet files that Dagster run pods write.
 - `global.srdpRegistry` and `global.imagePullSecrets` in the chart. The `registry` variable in the `Justfile` sets the registry for every SRDP image.
+- `S3StorageBackend` stores the DuckLake data files in S3-compatible object storage (Scaleway, Hetzner, MinIO) when `DUCKLAKE_STORAGE_BACKEND=s3` is set. Its settings live in their own `S3StorageSettings` (`DUCKLAKE_S3_*`), apart from the Postgres catalog settings. Endpoint, URL style and region are required, with no AWS defaults, and the DuckDB secret is scoped to the lake prefix. The default stays `local`, so nothing changes without the setting. Part of #56.
+- `srdp.io.dbt_plugin`, a dbt-duckdb plugin that attaches DuckLake with the same storage settings as Dagster, so a dbt profile no longer needs its own copy of them.
+- `S3StorageBackend.dlt_filesystem_config()` renders the same bucket, endpoint and key for a dlt filesystem destination.
+
+### Security
+
+- A DuckLake settings error no longer prints the values it was given, so a misconfigured start cannot write the Postgres password or the S3 secret to the logs.
 
 ### Changed
 
@@ -21,6 +28,7 @@ All notable changes to SRDP are documented here. The format follows [Keep a Chan
 - The base Kubernetes run profile requests 512Mi with a 1536Mi limit, since a full `srdp_etl_job` run peaks at about 1Gi.
 - Marquez loads its own config through `MARQUEZ_CONFIG` and reads its database password from `MARQUEZ_DB_PASSWORD`. Its role no longer uses the literal password `marquez`.
 - Chart templates read the Postgres host from `global.postgresqlHost`, so production's `db-postgresql-primary` works without template edits.
+- CI installs the `dbt` extra, so `ty` can resolve the dbt-duckdb plugin's imports.
 
 ### Removed
 
