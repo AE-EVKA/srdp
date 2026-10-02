@@ -119,6 +119,13 @@ dagster:
             # with the writer key. includeConfigInLaunchedRuns copies it into
             # every run pod, so no run starts before the bucket exists.
             image: curlimages/curl:8.22.0
+            securityContext:
+              runAsNonRoot: true
+              runAsUser: 100
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop: [ALL]
             envFrom:
               - configMapRef:
                   name: srdp-ducklake-storage

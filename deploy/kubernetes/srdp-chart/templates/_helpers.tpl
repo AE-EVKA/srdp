@@ -59,6 +59,13 @@ writer Secret; keep the two in step.
 {{- define "srdp.waitForDucklakeBucket" -}}
 - name: wait-for-ducklake-bucket
   image: curlimages/curl:8.22.0
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 100
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: [ALL]
   envFrom:
     {{- include "srdp.ducklakeEnvFrom" . | nindent 4 }}
   env:

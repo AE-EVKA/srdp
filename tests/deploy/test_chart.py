@@ -402,3 +402,21 @@ def test_s3_dagster_run_pods_wait_for_the_bucket_too(local_s3: list[Manifest]) -
     init = yaml.safe_load(context)["k8s"]["run_k8s_config"]["pod_spec_config"]["init_containers"]
     [wait] = [c for c in init if c["name"] == "wait-for-ducklake-bucket"]
     assert {ref["name"] for ref in s3_key_refs(wait["env"])} == {WRITER_KEY}
+
+
+def test_s3_every_wait_container_runs_hardened(local_s3: list[Manifest]) -> None:
+    # Only the chart's own waits, subcharts such as Zitadel bring their own.
+    own = re.compile(r"wait-for-[a-z0-9-]+-(db|bucket)")
+    waits = [
+        (name, c)
+        for name, spec in pod_specs(local_s3)
+        for c in spec.get("initContainers", [])
+        if own.fullmatch(c["name"])
+    ]
+    assert {c["name"] for _, c in waits} >= {"wait-for-ducklake-db", "wait-for-ducklake-bucket"}
+    for name, c in waits:
+        context = c.get("securityContext", {})
+        assert context.get("runAsNonRoot") is True, f"{name}/{c['name']}"
+        assert context.get("readOnlyRootFilesystem") is True, f"{name}/{c['name']}"
+        assert context.get("allowPrivilegeEscalation") is False, f"{name}/{c['name']}"
+        assert context.get("capabilities") == {"drop": ["ALL"]}, f"{name}/{c['name']}"
