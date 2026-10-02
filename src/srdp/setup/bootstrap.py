@@ -1,31 +1,18 @@
-"""Idempotent Postgres database/role bootstrap for a fresh or existing SRDP deployment.
+"""Idempotent Postgres database/role bootstrap, from the ``[setup]`` table of ``srdp.toml``.
 
-The databases to create are declared in the ``[setup]`` table of ``srdp.toml``
-(``CONFIG_PATH``), the central platform config (#42). On Compose that is the
-repo-root ``srdp.toml``, mounted into the container. On Kubernetes the chart
-renders the same table from its ``setup.databases`` value. Only the ``[setup]``
-table is read, so the rest of the file can grow without touching this service.
-Role passwords come from ``SETUP_PASSWORDS__<ROLE>`` env vars, keyed by role
-name, since ``srdp.toml`` never holds secrets.
-
-This is the only mechanism that creates these databases on either target.
-On Compose it runs before every service that needs Postgres, gated with
-``depends_on: condition: service_completed_successfully``. On Kubernetes it's
-a ``post-install``/``post-upgrade`` hook Job, and each consumer's
-``wait-for-*-db`` init container blocks until its database exists.
-
-Every run reconciles role passwords too, so rotating a password (or migrating
-a deployment whose role predates the configured password) only needs a rerun.
+Role passwords come from ``SETUP_PASSWORDS__<ROLE>``. Every run also resets them.
 """
 
 import logging
 import time
 from pathlib import Path
+from typing import Annotated
 
 import psycopg2
 import psycopg2.extensions
 from psycopg2 import sql
-from pydantic import BaseModel, Field, SecretStr, model_validator
+from psycopg2.extensions import encrypt_password
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, StringConstraints, model_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -38,12 +25,20 @@ logger = logging.getLogger(__name__)
 CONFIG_PATH = Path("/etc/srdp/srdp.toml")
 
 
+# Lowercase, and within Postgres's 63-byte identifier limit, since a longer
+# name is truncated on creation and never matched again.
+Identifier = Annotated[str, StringConstraints(pattern=r"^[a-z_][a-z0-9_]{0,62}$")]
+
+
 class DatabaseTarget(BaseModel):
     """One database (and optionally its own role) the setup service ensures exists."""
 
-    name: str
+    model_config = ConfigDict(extra="forbid")
+
+    name: Identifier
+    # Lowercase, SETUP_PASSWORDS__<ROLE> keys are lowercased.
     # None reuses the superuser as owner (DuckLake connects as the superuser).
-    role: str | None = None
+    role: Identifier | None = None
     # False leaves the target to another owner, e.g. the Bitnami subchart's
     # auth.* fields own zitadel's role/database on Kubernetes.
     enabled: bool = True
@@ -55,9 +50,11 @@ class SetupSettings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="SETUP_",
         env_nested_delimiter="__",
+        # Split only once, so a role named a__b still maps to passwords["a__b"].
+        env_nested_max_split=1,
         toml_file=CONFIG_PATH,
         toml_table_header=("setup",),
-        extra="ignore",
+        extra="forbid",
     )
 
     pg_host: str = Field(default="postgres")
@@ -86,6 +83,10 @@ class SetupSettings(BaseSettings):
         duplicates = sorted({name for name in names if names.count(name) > 1})
         if duplicates:
             msg = f"Duplicate database names in setup config: {', '.join(duplicates)}."
+            raise ValueError(msg)
+
+        if any(target.role == self.pg_user for target in self.databases):
+            msg = f"Role '{self.pg_user}' is the superuser, leave `role` out to use it."
             raise ValueError(msg)
 
         missing = sorted(
@@ -121,7 +122,10 @@ def ensure_target(cur: psycopg2.extensions.cursor, target: DatabaseTarget, setti
         settings: Validated settings, holding the role's password.
     """
     if target.role is not None:
-        password = settings.passwords[target.role].get_secret_value()
+        # Hashed client-side, so a logged statement never holds the plain password.
+        password = encrypt_password(
+            settings.passwords[target.role].get_secret_value(), target.role, cur, "scram-sha-256"
+        )
         role = sql.Identifier(target.role)
         if _role_exists(cur, target.role):
             cur.execute(sql.SQL("ALTER ROLE {} WITH LOGIN PASSWORD %s").format(role), (password,))
@@ -142,7 +146,7 @@ def ensure_target(cur: psycopg2.extensions.cursor, target: DatabaseTarget, setti
 
 
 def _connect_with_retry(
-    settings: SetupSettings, max_attempts: int = 10, delay_seconds: float = 3.0
+    settings: SetupSettings, max_attempts: int = 40, delay_seconds: float = 3.0
 ) -> psycopg2.extensions.connection:
     """Connect to Postgres, retrying while it's still starting up.
 
@@ -173,7 +177,8 @@ def _connect_with_retry(
         except psycopg2.OperationalError as exc:
             last_error = exc
             logger.warning("Postgres not ready yet (attempt %d/%d): %s", attempt, max_attempts, exc)
-            time.sleep(delay_seconds)
+            if attempt < max_attempts:
+                time.sleep(delay_seconds)
     assert last_error is not None  # noqa: S101 -- loop always sets it before exhausting attempts
     raise last_error
 

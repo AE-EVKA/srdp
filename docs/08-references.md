@@ -42,7 +42,9 @@ This document holds references to the sources used in the creation of this proje
 ## Database
 
 - **[Bitnami PostgreSQL Helm Chart | GitHub](https://github.com/bitnami/charts/tree/main/bitnami/postgresql)**
-    - The Bitnami PostgreSQL Helm chart provides the in-cluster database, aliased as `zitadel-db` in the umbrella chart. Its `auth.*` fields create the `zitadel` database and role; the `srdp-setup` Job creates the other service databases. The chart also handles TLS, replication, and scheduled backups via CronJob.
+    - The Bitnami PostgreSQL Helm chart provides the in-cluster database, aliased as `zitadel-db` in the umbrella chart.
+      Its `auth.*` fields create the `zitadel` database and role; the `srdp-setup` Job creates the other service databases.
+      The chart also handles TLS, replication, and scheduled backups via CronJob.
 
 ## Data Orchestration
 

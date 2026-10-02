@@ -70,6 +70,9 @@ just prod-use-kubeconfig   # from repo root
 - `config-yaml` in `srdp-zitadel` is a Zitadel config fragment with `Database.Postgres.User.Password`, `Database.Postgres.Admin.Password` and `FirstInstance.Org.Human.Password`.
   The two database passwords must match `password` and `postgres-password` in `srdp-postgres`.
 - The `srdp-setup` Job reads `srdp-dagster-postgresql` and `srdp-marquez` too, and applies them to their roles on every install and upgrade.
+- **Changing an internal password**: these are service-to-service credentials, so change one only as a deliberate rotation.
+  Change the value in its Secret, run `helm upgrade`, then restart the services that use it.
+  Marquez restarts by itself. For Dagster, run `kubectl -n srdp rollout restart deploy/srdp-dagster-webserver deploy/srdp-dagster-webserver-read-only deploy/srdp-dagster-daemon deploy/srdp-dagster-user-deployments-srdp-etl`.
 - **Master key format**: ZITADEL expects a 32-character master key string. Generate one, for example, with `tr -dc 'A-Za-z0-9' </dev/urandom | head -c 32`.
 - **Password complexity**: Zitadel's first human/admin password must include uppercase, lowercase, digits, and at least one symbol. For example, use `SrdpTest123!` rather than `srdpTest123`.
 

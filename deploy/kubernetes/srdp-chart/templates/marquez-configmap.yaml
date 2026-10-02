@@ -30,13 +30,9 @@ data:
       appenders:
         - type: console
 
+    # Explicit because the image tag floats (latest).
     search:
-      enabled: ${SEARCH_ENABLED:-true}
-      scheme: http
-      host: ${SEARCH_HOST:-opensearch}
-      port: ${SEARCH_PORT:-9200}
-      username: admin
-      password: admin
+      enabled: false
 
     tags:
       - name: PII

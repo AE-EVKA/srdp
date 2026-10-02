@@ -1,4 +1,5 @@
 #!/bin/sh
+set -e
 
 SCRIPT_DIR="$(cd -- "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd -- "$SCRIPT_DIR/../../.." && pwd)"
@@ -30,5 +31,13 @@ docker build --platform linux/amd64 \
   -t "$REGISTRY/srdp-etl:$VERSION" \
   "$REPO_ROOT"
 docker push "$REGISTRY/srdp-etl:$VERSION"
+
+echo "Building SRDP Setup (database/role bootstrap Job)..."
+# Build context is repo root, the Dockerfile needs access to src/.
+docker build --platform linux/amd64 \
+  -f "$REPO_ROOT/deploy/docker/srdp-setup.Dockerfile" \
+  -t "$REGISTRY/srdp-setup:$VERSION" \
+  "$REPO_ROOT"
+docker push "$REGISTRY/srdp-setup:$VERSION"
 
 echo "Done! Images pushed."

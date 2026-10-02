@@ -8,4 +8,6 @@ RUN uv sync --frozen --no-dev --extra ducklake
 
 ENV PATH="/app/.venv/bin:${PATH}"
 
+USER nobody
+
 ENTRYPOINT ["python", "-m", "srdp.setup"]

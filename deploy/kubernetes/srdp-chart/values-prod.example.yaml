@@ -62,9 +62,6 @@ zitadel-db:
   enabled: true
   architecture: replication
 
-  # No primary.initdb.scripts: the srdp-setup Job creates the dagster,
-  # marquez and ducklake databases (setup.databases in values.yaml).
-
   readReplicas:
     replicaCount: 1
     persistence:
@@ -174,10 +171,7 @@ quarto:
 # Dagster app
 dagster:
   enabled: true
-  # extraPrependedInitContainers isn't run through Helm's tpl, so this can't
-  # reference global.postgresqlHost, it has to be a literal, same reasoning as
-  # dagster-user-deployments.deployments[0].initContainers below. See
-  # values.yaml's copy for the local-dev version of this block.
+  # Literal host, the subchart doesn't tpl extraPrependedInitContainers.
   dagsterWebserver:
     extraPrependedInitContainers: &wait-for-dagster-db-prod
       - name: wait-for-dagster-db
@@ -186,22 +180,31 @@ dagster:
           - sh
           - -c
           - |
-            for i in $(seq 1 30); do
-              if psql "postgresql://postgres@db-postgresql-primary:5432/postgres" -tAc \
-                "SELECT 1 FROM pg_database WHERE datname = 'dagster'" | grep -q 1; then
-                exit 0
-              fi
-              echo "waiting for the dagster database to be created ($i/30)..."
+            for i in $(seq 1 60); do
+              psql -tAc "SELECT 1" >/dev/null && exit 0
+              echo "waiting for $PGUSER to log in to $PGDATABASE ($i/60)..."
               sleep 2
             done
-            echo "dagster database still missing after 30 attempts, giving up." >&2
             exit 1
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 70
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: [ALL]
         env:
+          - name: PGHOST
+            value: db-postgresql-primary
+          - name: PGUSER
+            value: dagster
+          - name: PGDATABASE
+            value: dagster
           - name: PGPASSWORD
             valueFrom:
               secretKeyRef:
-                name: srdp-postgres
-                key: postgres-password
+                name: srdp-dagster-postgresql
+                key: postgresql-password
   dagsterDaemon:
     extraPrependedInitContainers: *wait-for-dagster-db-prod
   postgresql:
@@ -227,17 +230,26 @@ dagster:
               - sh
               - -c
               - |
-                for i in $(seq 1 30); do
-                  if psql "postgresql://postgres@db-postgresql-primary:5432/postgres" -tAc \
-                    "SELECT 1 FROM pg_database WHERE datname = 'ducklake'" | grep -q 1; then
-                    exit 0
-                  fi
-                  echo "waiting for the ducklake database to be created ($i/30)..."
+                for i in $(seq 1 60); do
+                  psql -tAc "SELECT 1" >/dev/null && exit 0
+                  echo "waiting for $PGUSER to log in to $PGDATABASE ($i/60)..."
                   sleep 2
                 done
-                echo "ducklake database still missing after 30 attempts, giving up." >&2
                 exit 1
+            securityContext:
+              runAsNonRoot: true
+              runAsUser: 70
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop: [ALL]
             env:
+              - name: PGHOST
+                value: db-postgresql-primary
+              - name: PGUSER
+                value: postgres
+              - name: PGDATABASE
+                value: ducklake
               - name: PGPASSWORD
                 valueFrom:
                   secretKeyRef:

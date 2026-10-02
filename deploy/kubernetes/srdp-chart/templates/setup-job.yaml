@@ -1,28 +1,35 @@
-# Idempotent database/role bootstrap, the only mechanism creating the
-# databases in setup.databases, on a fresh install and an existing volume
-# alike. As a hook it has no ordering guarantee against the chart's regular
-# Deployments, so each consumer waits for its own database with a
-# wait-for-*-db init container. See src/srdp/setup/bootstrap.py.
+{{- if .Values.setup.enabled }}
 apiVersion: batch/v1
 kind: Job
 metadata:
   name: srdp-setup
   annotations:
-    # post-install/post-upgrade: this Job needs to connect to Postgres, which
-    # doesn't exist yet during pre-install hooks, those run before the
-    # chart's core resources are created at all. restartPolicy: OnFailure
-    # below handles the remaining gap between "resource created" and
-    # "Postgres actually accepting connections".
+    # Post-install because Postgres doesn't exist yet during pre-install. Consumers
+    # block on this Job, so `helm --wait`/`--atomic` would deadlock.
     helm.sh/hook: post-install,post-upgrade
-    helm.sh/hook-weight: "5"
+    # Before zitadel-init (-5), so a Zitadel failure can't block the databases.
+    helm.sh/hook-weight: "-10"
     helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
 spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 240
   template:
     spec:
       restartPolicy: OnFailure
+      automountServiceAccountToken: false
       {{- include "srdp.imagePullSecrets" . | nindent 6 }}
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: srdp-setup
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
           image: {{ include "srdp.image" (list . .Values.setup.image) }}
           imagePullPolicy: {{ .Values.setup.image.pullPolicy }}
           env:
@@ -33,8 +40,6 @@ spec:
                 secretKeyRef:
                   name: srdp-postgres
                   key: postgres-password
-            # One SETUP_PASSWORDS__<ROLE> per enabled role in setup.databases.
-            # The Job fails before touching Postgres if one is missing.
             # Same Secret keys the consumers read, otherwise the Job resets a
             # role to a password its application does not know.
             - name: SETUP_PASSWORDS__DAGSTER
@@ -55,3 +60,4 @@ spec:
         - name: setup-config
           configMap:
             name: srdp-setup-config
+{{- end }}
