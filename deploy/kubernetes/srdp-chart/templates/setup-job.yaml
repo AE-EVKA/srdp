@@ -9,7 +9,9 @@ metadata:
     helm.sh/hook: post-install,post-upgrade
     # Before zitadel-init (-5), so a Zitadel failure can't block the databases.
     helm.sh/hook-weight: "-10"
-    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+    # Kept after success, so `kubectl logs job/srdp-setup` shows the last run.
+    # The next install or upgrade replaces it.
+    helm.sh/hook-delete-policy: before-hook-creation
 spec:
   backoffLimit: 2
   activeDeadlineSeconds: 240

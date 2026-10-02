@@ -256,6 +256,12 @@ def test_local_deploy_rolls_subchart_pods_on_local_secret_change(name: str) -> N
     assert pod_annotations(manifests, name)["checksum/local-secrets"] == "abc"
 
 
+def test_setup_job_outlives_its_success(local: list[Manifest]) -> None:
+    """Its logs are the evidence the troubleshooting docs point to, so only the next hook run replaces it."""
+    job = find(local, "Job", "srdp-setup")
+    assert job["metadata"]["annotations"]["helm.sh/hook-delete-policy"] == "before-hook-creation"
+
+
 def test_writers_and_readers_mount_ducklake_data_at_the_same_path(local: list[Manifest]) -> None:
     names = ["srdp-dagster-user-deployments-srdp-etl", "api", "duckdb-ui", "marimo", "streamlit"]
     paths = set()

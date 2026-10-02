@@ -89,7 +89,8 @@ local-deploy: kind-load-images chart-deps
 local-delete:
 	helm uninstall srdp -n {{namespace}} || true
 	# Dagster run Jobs are created by the run launcher, not by Helm, and their
-	# pods keep the ducklake-data PVC in Terminating until they are gone.
+	# pods keep the ducklake-data PVC in Terminating until they are gone. The
+	# srdp-setup hook Job also outlives helm uninstall (no hook-succeeded).
 	kubectl delete jobs --all -n {{namespace}} || true
 	kubectl delete pvc --all -n {{namespace}} || true
 

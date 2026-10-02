@@ -2,11 +2,18 @@
 
 from pathlib import Path
 
+import psycopg2
 import pytest
 from pydantic import SecretStr, ValidationError
 from pydantic_settings import SettingsConfigDict
 
-from srdp.setup.bootstrap import DatabaseTarget, SetupSettings, ensure_target
+from srdp.setup.bootstrap import (
+    CONNECT_TIMEOUT_SECONDS,
+    DatabaseTarget,
+    SetupSettings,
+    _connect_with_retry,
+    ensure_target,
+)
 
 CONFIG_TOML = """
 # Tables other than [setup] belong to other consumers and are ignored.
@@ -202,3 +209,23 @@ def test_roleless_target_is_owned_by_superuser() -> None:
 
     assert not any("ROLE" in s for s in cur.statements)
     assert any("CREATE DATABASE" in s and "'postgres'" in s for s in cur.statements)
+
+
+def test_connect_retries_with_a_per_attempt_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A hanging attempt must not use up the Job's activeDeadlineSeconds."""
+    calls: list[dict[str, object]] = []
+    connection = object()
+
+    def fake_connect(**kwargs: object) -> object:
+        calls.append(kwargs)
+        if len(calls) < 3:
+            msg = "starting up"
+            raise psycopg2.OperationalError(msg)
+        return connection
+
+    monkeypatch.setattr("srdp.setup.bootstrap.psycopg2.connect", fake_connect)
+    monkeypatch.setattr("srdp.setup.bootstrap.time.sleep", lambda _: None)
+
+    assert _connect_with_retry(_settings()) is connection
+    assert len(calls) == 3
+    assert all(call["connect_timeout"] == CONNECT_TIMEOUT_SECONDS for call in calls)

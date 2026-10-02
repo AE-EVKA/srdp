@@ -38,6 +38,8 @@ All notable changes to SRDP are documented here. The format follows [Keep a Chan
 - `srdp-setup` sends role passwords as SCRAM hashes, so a logged statement never holds a plain password.
 - `srdp-setup` and the wait containers run as non-root with a read-only filesystem and no capabilities.
 - The chart's setup Job runs before Zitadel's hooks, gives up after 2 retries or 4 minutes, and can be switched off with `setup.enabled`.
+  It stays after it succeeds, until the next install or upgrade, so `kubectl logs job/srdp-setup` always shows the last run.
+  Each connection attempt times out after 5 seconds, so an unreachable host can't use up those 4 minutes.
 - `just build-and-push` also builds and pushes the `srdp-setup` image, and stops on the first failed build or push.
 
 ### Removed
