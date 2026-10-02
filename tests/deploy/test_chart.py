@@ -10,12 +10,16 @@ import yaml
 
 CHART_DIR = Path(__file__).resolve().parents[2] / "deploy" / "kubernetes" / "srdp-chart"
 
-pytestmark = pytest.mark.skipif(
-    shutil.which("helm") is None or not (CHART_DIR / "charts").is_dir(),
-    reason="needs helm and the chart dependencies (helm dependency build)",
-)
+pytestmark = pytest.mark.skipif(shutil.which("helm") is None, reason="needs helm")
 
 Manifest = dict[str, Any]
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _chart_dependencies() -> None:
+    """Fail rather than skip without the subcharts, so CI cannot pass by testing nothing."""
+    if not (CHART_DIR / "charts").is_dir():
+        pytest.fail("chart dependencies missing, run `just chart-deps`")
 
 
 def render(*values_files: str, set_values: tuple[str, ...] = ()) -> list[Manifest]:

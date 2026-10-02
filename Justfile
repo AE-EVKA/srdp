@@ -62,9 +62,15 @@ local-tls: kind-up
 	kubectl create namespace {{namespace}} --dry-run=client -o yaml | kubectl apply -f -
 	kubectl create secret tls custom-ingress-cert --namespace {{namespace}} --key deploy/kubernetes/certs/selfsigned.key --cert deploy/kubernetes/certs/selfsigned.crt --dry-run=client -o yaml | kubectl apply -f -
 
+# Fetch the subcharts pinned in Chart.lock into srdp-chart/charts/
+chart-deps:
+	cd deploy/kubernetes/srdp-chart && \
+		awk '$2 == "name:" {name = $3} $1 == "repository:" {print name, $2}' Chart.yaml | \
+		while read -r name url; do helm repo add --force-update "srdp-$name" "$url" >/dev/null; done && \
+		helm dependency build
+
 # Deploy the full stack to local kind via Helm
-local-deploy: kind-load-images
-	cd deploy/kubernetes/srdp-chart && helm dependency update
+local-deploy: kind-load-images chart-deps
 	cd deploy/kubernetes && helm upgrade --install srdp srdp-chart --namespace {{namespace}} --create-namespace -f srdp-chart/values.yaml -f srdp-chart/values-local.yaml {{registry_args}}
 	@echo "Reading Traefik's assigned ClusterIP to wire it into oauth2-proxy's hostAliases..."
 	@TRAEFIK_IP=$(kubectl get svc srdp-traefik -n {{namespace}} -o jsonpath='{.spec.clusterIP}'); \
