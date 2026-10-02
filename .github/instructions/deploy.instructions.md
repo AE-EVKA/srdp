@@ -38,7 +38,8 @@ Placeholders use the `CHANGE_ME_*` prefix convention.
 
 ### Container images
 
-Registry: `rg.nl-ams.scw.cloud/srdp-registry/`
+Registry: `[deploy] registry` in `srdp.toml`.
+The Justfile passes it to builds and to the chart, so never hardcode it elsewhere.
 
 | Image | Source | Tag |
 |:---|:---|:---|

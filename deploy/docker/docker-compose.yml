@@ -1,5 +1,3 @@
-# Shared by every service that only needs Postgres itself up and the
-# database/role bootstrap done, not another service's own readiness.
 x-ducklake-depends: &ducklake-depends
   depends_on:
     srdp-setup:
@@ -57,16 +55,16 @@ services:
       - pgdata:/var/lib/postgresql/data:rw
 
   # ---------------------------------------------
-  # Setup: idempotent database/role bootstrap, runs before anything that needs
-  # its own database, on a fresh volume and an existing one alike. The database
-  # list lives in the [setup] table of the repo-root srdp.toml, each role's
-  # password in SETUP_PASSWORDS__<ROLE>. See src/srdp/setup/bootstrap.py.
+  # Setup: database/role bootstrap from srdp.toml [setup]
   # ---------------------------------------------
   srdp-setup:
     build:
       context: ../../
       dockerfile: deploy/docker/srdp-setup.Dockerfile
     container_name: srdp-setup
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
     environment:
       SETUP_PG_HOST: postgres
       POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
@@ -459,7 +457,6 @@ services:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
       MARQUEZ_DB_PASSWORD: "${MARQUEZ_DB_PASSWORD}"
-      SEARCH_ENABLED: false
     volumes:
       - ./marquez.yml:/etc/marquez/marquez.yml:ro
     networks:

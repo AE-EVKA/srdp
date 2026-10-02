@@ -1,14 +1,15 @@
 #!/bin/sh
+set -e
 
 SCRIPT_DIR="$(cd -- "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd -- "$SCRIPT_DIR/../../.." && pwd)"
 
-# Configuration
-REGISTRY="rg.nl-ams.scw.cloud/srdp-registry"
+# Configuration. REGISTRY comes from srdp.toml [deploy] via `just build-and-push`.
+REGISTRY="${REGISTRY:?set REGISTRY, or run via just build-and-push}"
 VERSION="v1.0"
 
 echo "Logging into Scaleway Registry"
-echo "$SCW_SECRET_KEY" | docker login rg.nl-ams.scw.cloud -u nologin --password-stdin
+echo "$SCW_SECRET_KEY" | docker login "${REGISTRY%%/*}" -u nologin --password-stdin
 
 echo "Building and Pushing SRDP Images"
 echo "Target Registry: $REGISTRY"
@@ -30,5 +31,13 @@ docker build --platform linux/amd64 \
   -t "$REGISTRY/srdp-etl:$VERSION" \
   "$REPO_ROOT"
 docker push "$REGISTRY/srdp-etl:$VERSION"
+
+echo "Building SRDP Setup (database/role bootstrap Job)..."
+# Build context is repo root, the Dockerfile needs access to src/.
+docker build --platform linux/amd64 \
+  -f "$REPO_ROOT/deploy/docker/srdp-setup.Dockerfile" \
+  -t "$REGISTRY/srdp-setup:$VERSION" \
+  "$REPO_ROOT"
+docker push "$REGISTRY/srdp-setup:$VERSION"
 
 echo "Done! Images pushed."

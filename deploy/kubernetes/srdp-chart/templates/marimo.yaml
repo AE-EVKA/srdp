@@ -12,6 +12,7 @@ spec:
       app: marimo
   template:
     metadata:
+      {{- include "srdp.localSecretsChecksum" . | nindent 6 }}
       labels:
         app: marimo
     spec:

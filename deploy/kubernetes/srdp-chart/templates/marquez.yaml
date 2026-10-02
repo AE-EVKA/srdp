@@ -12,6 +12,7 @@ spec:
       app: marquez
   template:
     metadata:
+      {{- include "srdp.localSecretsChecksum" . | nindent 6 }}
       labels:
         app: marquez
     spec:
@@ -21,38 +22,9 @@ spec:
       # which Marquez's own config expects as a plain integer, crashing on
       # startup. Disable it, nothing here relies on those vars.
       enableServiceLinks: false
-      # The setup Job (srdp-setup) that creates the marquez role/database runs
-      # as a post-install/post-upgrade hook, with no ordering guarantee against
-      # this Deployment, confirmed live: marquez failed on startup
-      # (DbMigration.migrateDbOrError) before self-healing via its own
-      # container restart. Wait for the actual precondition (the database
-      # existing) rather than rely on that restart.
+      # The setup hook Job has no ordering guarantee against this Deployment.
       initContainers:
-        # Checks the database, not the role: ensure_target (src/srdp/setup/bootstrap.py)
-        # creates the role first and the database second, so database-exists is the
-        # tighter precondition and implies the role already exists too.
-        - name: wait-for-marquez-db
-          image: postgres:17-alpine
-          command:
-            - sh
-            - -c
-            - |
-              for i in $(seq 1 30); do
-                if psql "postgresql://postgres@{{ .Values.global.postgresqlHost }}:5432/postgres" -tAc \
-                  "SELECT 1 FROM pg_database WHERE datname = 'marquez'" | grep -q 1; then
-                  exit 0
-                fi
-                echo "waiting for the marquez database to be created ($i/30)..."
-                sleep 2
-              done
-              echo "marquez database still missing after 30 attempts, giving up." >&2
-              exit 1
-          env:
-            - name: PGPASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: srdp-postgres
-                  key: postgres-password
+        {{- include "srdp.waitForDbLogin" (dict "root" $ "db" "marquez" "user" "marquez" "secretName" "srdp-marquez" "secretKey" "db-password") | nindent 8 }}
       containers:
         - name: marquez
           image: "{{ .Values.marquez.image.repository }}:{{ .Values.marquez.image.tag }}"
@@ -72,8 +44,6 @@ spec:
                 secretKeyRef:
                   name: srdp-marquez
                   key: db-password
-            - name: SEARCH_ENABLED
-              value: "false"
           volumeMounts:
             - name: marquez-config
               mountPath: /etc/marquez

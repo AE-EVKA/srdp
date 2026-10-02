@@ -12,6 +12,7 @@ spec:
       app: streamlit
   template:
     metadata:
+      {{- include "srdp.localSecretsChecksum" . | nindent 6 }}
       labels:
         app: streamlit
     spec:
