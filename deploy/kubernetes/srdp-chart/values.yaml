@@ -298,6 +298,7 @@ dagster:
     deployments:
       - name: srdp-etl
         image:
+          # <srdp.toml [deploy].registry>/srdp-etl, the Justfile overrides it.
           repository: rg.nl-ams.scw.cloud/srdp-registry/srdp-etl
           tag: "v1.0"
           pullPolicy: IfNotPresent

@@ -135,7 +135,8 @@ A **node pool** is a group of nodes of the same type.
 Our blueprint has two.
 
 - The **system pool** always runs, with the fixed components such as Traefik, Zitadel, Postgres and the apps.
-- The **compute pool** uses heavy machines with a lot of memory (type POP2), and has a minimum of zero nodes. Kubernetes only starts a node there when a Dagster run needs the room, and removes it again afterwards.
+- The **compute pool** uses heavy machines with a lot of memory (type POP2), and has a minimum of zero nodes.
+  Kubernetes only starts a node there when a Dagster run needs the room, and removes it again afterwards.
 
 Because an empty pool costs nothing, you can switch the environment off cheaply by setting both pools to zero.
 
@@ -152,7 +153,8 @@ The blueprint in `deploy/scaleway/` spreads the infrastructure over several Scal
 A Project is a separate space inside your Scaleway account, with its own permissions and its own billing line.
 
 - The **hub** holds what all environments share, such as the Container Registry.
-- A **spoke** is one environment, such as `dev`. It holds the Kapsule cluster, the lakehouse bucket, Secret Manager and the IAM keys.
+- A **spoke** is one environment, such as `dev`.
+  It holds the Kapsule cluster, the lakehouse bucket, Secret Manager and the IAM keys.
 
 The picture comes from a wheel.
 The hub sits in the middle and the spokes are the spokes.

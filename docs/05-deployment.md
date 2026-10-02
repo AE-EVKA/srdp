@@ -30,13 +30,13 @@ PostgreSQL runs **in-cluster** via the Bitnami Helm chart (not as a Scaleway man
 
 ## 2) Build and push container images
 
-Run the build script after sourcing credentials (it logs into the Scaleway registry):
+Run the build recipe from the repository root. It sources `deploy/opentofu/scaleway/secrets.sh` for the credentials and logs into the registry:
 ```bash
-cd deploy/opentofu/scaleway
-source ./secrets.sh
-./build-and-push.sh
+just build-and-push
 ```
-This builds and pushes Marimo and srdp-etl (Dagster user code) to the registry in `srdp.toml` under `[deploy] registry`. Quarto is disabled by default (`quarto.enabled: false`), see `docs/02-configuration.md`.
+This builds and pushes Marimo, srdp-etl (Dagster user code) and srdp-setup to the registry in `srdp.toml` under `[deploy] registry`.
+Quarto is disabled by default (`quarto.enabled: false`).
+`docs/02-configuration.md` explains why.
 
 ## 3) Provision infrastructure with OpenTofu
 
@@ -57,8 +57,9 @@ just prod-use-kubeconfig   # from repo root
 
 - Copy `deploy/kubernetes/srdp-chart/values-prod.example.yaml` to `deploy/kubernetes/srdp-chart/values-prod.yaml` if you are starting fresh.
 - Fill in `global.domain`, the `oauth2-proxy` cookie and whitelist domains, and the ACME email for Traefik.
-- Set the registry in `srdp.toml` under `[deploy] registry`. The `prod-*` recipes pass it to the chart as `global.srdpRegistry` and as the `srdp-etl` repository.
   Use a real domain or `<lb-ip>.nip.io` once you know the load balancer IP.
+- Set the registry in `srdp.toml` under `[deploy] registry`.
+  The `prod-*` recipes pass it to the chart as `global.srdpRegistry` and as the `srdp-etl` repository.
 - The values files hold no passwords or keys.
   Before you install, create these Secrets in the `srdp` namespace, for example with External Secrets.
   Every consumer reads them by these fixed names.
@@ -130,8 +131,8 @@ just prod-full
 # 1. Prepare (first time only, from deploy/opentofu/scaleway/)
 cd deploy/opentofu/scaleway && source ./secrets.sh && tofu init -upgrade
 
-# 2. Build and push container images (from deploy/opentofu/scaleway/)
-cd deploy/opentofu/scaleway && source ./secrets.sh && ./build-and-push.sh
+# 2. Build and push container images (from repo root)
+just build-and-push
 
 # 3. Provision infrastructure (from repo root)
 just prod-apply

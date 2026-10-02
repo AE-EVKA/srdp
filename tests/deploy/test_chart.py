@@ -1,5 +1,6 @@
 """Render the Helm chart with `helm template` and check its contract with the Compose stack."""
 
+import re
 import shlex
 import shutil
 import subprocess
@@ -215,6 +216,9 @@ def test_the_justfile_registry_moves_every_srdp_image() -> None:
 def test_chart_registry_defaults_match_srdp_toml(values_file: str) -> None:
     """Rendering without the Justfile must not land on a registry other than srdp.toml's."""
     registry = tomllib.loads((REPO_ROOT / "srdp.toml").read_text())["deploy"]["registry"]
+    # The Justfile puts it inside single-quoted shell args and Helm --set values,
+    # so a quote, comma or space would break or split them.
+    assert re.fullmatch(r"[a-z0-9.-]+(:[0-9]+)?(/[a-z0-9._-]+)*", registry), registry
     values = yaml.safe_load((CHART_DIR / values_file).read_text())
     if "srdpRegistry" in values.get("global", {}):
         assert values["global"]["srdpRegistry"] == registry
@@ -232,6 +236,7 @@ SUBCHART_SECRET_READERS = [
 
 
 def pod_annotations(manifests: list[Manifest], name: str) -> dict[str, str]:
+    """Return the pod template annotations of the Deployment with this name."""
     return find(manifests, "Deployment", name)["spec"]["template"]["metadata"].get("annotations") or {}
 
 

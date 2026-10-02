@@ -56,7 +56,8 @@ The defaults in `.env.example` are fine for local development. You will need to 
 just docker-up
 ```
 
-This builds the Marimo image locally and starts all services: Traefik, PostgreSQL, `srdp-setup`, Zitadel, OAuth2-Proxy, Dagster (webserver, daemon, and user code), Marimo, Streamlit, the API, DuckDB UI, Marquez, and the hub landing page. First run will take a few minutes while images are pulled and built.
+This builds the Marimo image locally and starts all services: Traefik, PostgreSQL, `srdp-setup`, Zitadel, OAuth2-Proxy, Dagster (webserver, daemon, and user code), Marimo, Streamlit, the API, DuckDB UI, Marquez, and the hub landing page.
+First run will take a few minutes while images are pulled and built.
 
 Quarto is disabled by default, its base image bundles a full Pandoc/TinyTeX/Deno toolchain sized for scientific publishing, heavy for a single static page with no current use. Its source stays at `services/quarto/`, wire it back into `deploy/docker/docker-compose.yml` and `config/traefik/traefik.yml` when it's needed again.
 
@@ -139,7 +140,9 @@ OAuth2-Proxy needs an OIDC client registered in Zitadel. Zitadel creates its fir
 Open `https://auth.srdp.localhost` (Docker Compose) or `https://auth.srdp.localhost:18443` (the local `kind` cluster, see step 2 of Option B) and sign in as the first-instance admin. Zitadel derives the default admin login name from the configured `ExternalDomain`, so for the local stack it is:
 
 - Login name: `zitadel-admin@zitadel.auth.srdp.localhost`
-- Password: for the Kubernetes chart, the value of `localSecrets.zitadel.adminPassword` in `values-local.yaml`. The Docker Compose stack requires `ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD` to be set in `deploy/docker/.env` (see `.env.example`), Zitadel's own complexity rule applies: uppercase, lowercase, a digit, and a symbol.
+- Password: for the Kubernetes chart, the value of `localSecrets.zitadel.adminPassword` in `values-local.yaml`.
+  The Docker Compose stack requires `ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD` to be set in `deploy/docker/.env` (see `.env.example`).
+  Zitadel's own complexity rule applies, so the password needs an uppercase letter, a lowercase letter, a digit, and a symbol.
 
 If the login name differs, check it under **Users** in the Zitadel console.
 
