@@ -1,8 +1,13 @@
+---
+title: 9. Kubernetes Primer
+icon: lucide/ship-wheel
+---
+
 # Kubernetes primer for this deployment
 
-This page explains the concepts you will meet in the tickets.
+This page explains the Kubernetes concepts you meet when you deploy the chart.
 You already know Docker Compose, so each concept also says what it would be in Compose.
-Read the whole page once before you start ticket 1, and use it as a reference afterwards.
+Read the whole page once before your first Kubernetes deploy, and use it as a reference afterwards.
 
 ## What Kubernetes is
 

@@ -7,6 +7,9 @@ icon: lucide/cloud-cog
 
 This runbook uses OpenTofu to provision infrastructure and Helm to deploy the chart on Scaleway Kapsule (mutualized). All `just` commands should be run from the **repository root**. Steps that require manual commands specify their working directory explicitly.
 
+If you are new to Kubernetes, read the [Kubernetes primer](09-kubernetes-primer.md) first.
+It explains each concept next to its Docker Compose equivalent.
+
 ## What OpenTofu provisions
 
 OpenTofu creates the following resources on Scaleway (nl-ams region):
