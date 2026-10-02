@@ -172,18 +172,14 @@ def srdp_images(manifests: list[Manifest], registry: str) -> list[str]:
     ]
 
 
-def justfile_registry_args(registry: str) -> list[str]:
-    """Return the Justfile's `registry_args` as `--set` values, with its `registry` overridden."""
+def just_evaluate(variable: str, *overrides: str) -> list[str]:
+    """Return a Justfile `--set-string` args variable as `--set` values, with `--set` overrides."""
     just = shutil.which("just")
     if just is None:
         pytest.skip("needs just")
-    # Fixed argv, no shell: the registry comes from this test module.
+    # Fixed argv, no shell: every argument comes from this test module.
     result = subprocess.run(  # noqa: S603
-        [just, "--set", "registry", registry, "--evaluate", "registry_args"],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-        check=True,
+        [just, *overrides, "--evaluate", variable], cwd=REPO_ROOT, capture_output=True, text=True, check=True
     )
     args = shlex.split(result.stdout)
     assert set(args[::2]) == {"--set-string"}, args
@@ -197,7 +193,10 @@ def test_the_justfile_registry_moves_every_srdp_image() -> None:
         "values-local.yaml",
         # The Dagster code location image is a subchart value the chart cannot
         # template, so registry_args also sets its repository.
-        set_values=(*justfile_registry_args(registry), "global.imagePullSecrets[0].name=registry-key"),
+        set_values=(
+            *just_evaluate("registry_args", "--set", "registry", registry),
+            "global.imagePullSecrets[0].name=registry-key",
+        ),
     )
     images = srdp_images(manifests, registry)
     names = {image.rsplit("/", 1)[1].split(":")[0] for image in images}
@@ -217,6 +216,44 @@ def test_chart_registry_defaults_match_srdp_toml(values_file: str) -> None:
         assert values["global"]["srdpRegistry"] == registry
     deployments = values["dagster"]["dagster-user-deployments"]["deployments"]
     assert [d["image"]["repository"] for d in deployments] == [f"{registry}/srdp-etl"]
+
+
+LOCAL_SECRET_READERS = ["marquez", "api", "duckdb-ui", "marimo", "streamlit"]
+SUBCHART_SECRET_READERS = [
+    "srdp-oauth2-proxy",
+    "srdp-dagster-webserver",
+    "srdp-dagster-daemon",
+    "srdp-dagster-user-deployments-srdp-etl",
+]
+
+
+def pod_annotations(manifests: list[Manifest], name: str) -> dict[str, str]:
+    return find(manifests, "Deployment", name)["spec"]["template"]["metadata"].get("annotations") or {}
+
+
+@pytest.mark.parametrize("name", LOCAL_SECRET_READERS)
+def test_local_secret_change_rolls_chart_pods(local: list[Manifest], name: str) -> None:
+    """A secretKeyRef does not change the pod spec, so a checksum annotation rolls the pod instead."""
+    changed = render("values.yaml", "values-local.yaml", set_values=("localSecrets.marquez.dbPassword=changed",))
+    before = pod_annotations(local, name)["checksum/local-secrets"]
+    assert pod_annotations(changed, name)["checksum/local-secrets"] != before
+
+
+def test_default_render_has_no_local_secrets_checksum() -> None:
+    manifests = render("values.yaml")
+    for name in LOCAL_SECRET_READERS:
+        assert "checksum/local-secrets" not in pod_annotations(manifests, name), name
+
+
+@pytest.mark.parametrize("name", SUBCHART_SECRET_READERS)
+def test_local_deploy_rolls_subchart_pods_on_local_secret_change(name: str) -> None:
+    """Subcharts cannot hash the parent's Secrets, so local-deploy passes the checksum in."""
+    manifests = render(
+        "values.yaml",
+        "values-local.yaml",
+        set_values=tuple(just_evaluate("local_secrets_args", "--set", "local_secrets_sum", "abc")),
+    )
+    assert pod_annotations(manifests, name)["checksum/local-secrets"] == "abc"
 
 
 def test_writers_and_readers_mount_ducklake_data_at_the_same_path(local: list[Manifest]) -> None:

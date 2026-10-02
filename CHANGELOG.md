@@ -24,6 +24,7 @@ All notable changes to SRDP are documented here. The format follows [Keep a Chan
   Every consumer reads a fixed-name Secret (`srdp-postgres`, `srdp-zitadel`, `srdp-oauth2-proxy`, `srdp-dagster-postgresql`, `srdp-marquez`).
   In kind, `templates/local-secrets.yaml` creates them from `values-local.yaml`.
   Existing `values-prod.yaml` files must drop their password values and create these Secrets instead.
+  In kind, every pod that reads one of them restarts when `values-local.yaml` changes, through a `checksum/local-secrets` pod annotation.
 - Image `repository` values of the chart's own apps are bare names such as `marimo`, prefixed by `global.srdpRegistry`.
   Existing `values-prod.yaml` files that set a full repository path must shorten it.
 - Dagster in the chart launches at most one run at a time.

@@ -100,3 +100,18 @@ imagePullSecrets:
   {{- toYaml . | nindent 2 }}
 {{- end }}
 {{- end -}}
+
+{{/*
+Pod annotation for pods that read a localSecrets Secret. A secretKeyRef does
+not change the pod spec, so without it a pod keeps the old value after a
+redeploy, e.g. Marquez after srdp-setup resets its role's password. Hashes
+the whole local-secrets.yaml, so any local Secret change rolls every reader.
+Kind only: External Secrets (#69) covers this in the cloud. Subcharts get the
+same annotation from the Justfile's local_secrets_args.
+*/}}
+{{- define "srdp.localSecretsChecksum" -}}
+{{- if .Values.localSecrets.enabled -}}
+annotations:
+  checksum/local-secrets: {{ include (print .Template.BasePath "/local-secrets.yaml") . | sha256sum }}
+{{- end -}}
+{{- end -}}

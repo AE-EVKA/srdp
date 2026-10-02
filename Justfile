@@ -9,6 +9,11 @@ registry := `uv run --no-project python -c 'import sys, tomllib; sys.stdout.writ
 # Helm patches deployments[0] in place only when a -f file defines the list
 # (values.yaml or values-prod.yaml do), otherwise the --set replaces it.
 registry_args := "--set-string 'global.srdpRegistry=" + registry + "' --set-string 'dagster.dagster-user-deployments.deployments[0].image.repository=" + registry + "/srdp-etl'"
+# The chart rolls its own pods when a local Secret changes (srdp.localSecretsChecksum).
+# Subcharts cannot hash the parent's Secrets, so local-deploy passes them a hash of
+# values-local.yaml, which holds every local Secret value.
+local_secrets_sum := `uv run --no-project python -c 'import hashlib, sys; sys.stdout.write(hashlib.sha256(open("deploy/kubernetes/srdp-chart/values-local.yaml", "rb").read()).hexdigest())'`
+local_secrets_args := "--set-string 'oauth2-proxy.podAnnotations.checksum/local-secrets=" + local_secrets_sum + "' --set-string 'dagster.dagsterWebserver.annotations.checksum/local-secrets=" + local_secrets_sum + "' --set-string 'dagster.dagsterDaemon.annotations.checksum/local-secrets=" + local_secrets_sum + "' --set-string 'dagster.dagster-user-deployments.deployments[0].annotations.checksum/local-secrets=" + local_secrets_sum + "'"
 kubeconfig := justfile_directory() + "/deploy/opentofu/scaleway/kubeconfig.yaml"
 
 default: help
@@ -74,11 +79,11 @@ chart-deps:
 
 # Deploy the full stack to local kind via Helm
 local-deploy: kind-load-images chart-deps
-	cd deploy/kubernetes && helm upgrade --install srdp srdp-chart --namespace {{namespace}} --create-namespace -f srdp-chart/values.yaml -f srdp-chart/values-local.yaml {{registry_args}}
+	cd deploy/kubernetes && helm upgrade --install srdp srdp-chart --namespace {{namespace}} --create-namespace -f srdp-chart/values.yaml -f srdp-chart/values-local.yaml {{registry_args}} {{local_secrets_args}}
 	@echo "Reading Traefik's assigned ClusterIP to wire it into oauth2-proxy's hostAliases..."
 	@TRAEFIK_IP=$(kubectl get svc srdp-traefik -n {{namespace}} -o jsonpath='{.spec.clusterIP}'); \
 	echo "Traefik ClusterIP: $TRAEFIK_IP"; \
-	cd deploy/kubernetes && helm upgrade srdp srdp-chart --namespace {{namespace}} -f srdp-chart/values.yaml -f srdp-chart/values-local.yaml {{registry_args}} --set-string "oauth2-proxy.hostAliases[0].ip=$TRAEFIK_IP"
+	cd deploy/kubernetes && helm upgrade srdp srdp-chart --namespace {{namespace}} -f srdp-chart/values.yaml -f srdp-chart/values-local.yaml {{registry_args}} {{local_secrets_args}} --set-string "oauth2-proxy.hostAliases[0].ip=$TRAEFIK_IP"
 
 # Uninstall the local Helm release and its PVCs
 local-delete:
