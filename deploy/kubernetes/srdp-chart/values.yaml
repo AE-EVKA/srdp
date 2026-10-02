@@ -406,7 +406,8 @@ setup:
   # Keep in step with srdp.toml [setup]. A new role needs its SETUP_PASSWORDS__<ROLE> on the Job.
   databases:
     # Owned by the zitadel-db subchart's auth.* fields instead, a second
-    # source for the same role could silently diverge.
+    # source for the same role could silently diverge. #78 moves it into
+    # srdp-setup, like every other database.
     - name: zitadel
       role: zitadel
       enabled: false
