@@ -2,7 +2,8 @@
 global:
   domain: "LOAD_BALANCER_IP.nip.io" # CHANGE THIS to the dedicated domain
   postgresqlHost: "db-postgresql-primary"
-  # CHANGE THIS to your registry. Also set the srdp-etl repository below.
+  # The prod-* Justfile recipes override this and the srdp-etl repository
+  # below with srdp.toml [deploy].registry. Change the registry there.
   srdpRegistry: "rg.nl-ams.scw.cloud/srdp-registry"
   # imagePullSecrets:
   #   - name: registry-key
@@ -216,7 +217,7 @@ dagster:
     deployments:
       - name: srdp-etl
         image:
-          repository: "rg.nl-ams.scw.cloud/srdp-registry/srdp-etl" # CHANGE THIS with global.srdpRegistry
+          repository: "rg.nl-ams.scw.cloud/srdp-registry/srdp-etl" # Set from srdp.toml by the Justfile
           tag: "v1.0"
           pullPolicy: IfNotPresent
         dagsterApiGrpcArgs:

@@ -1,14 +1,17 @@
 """Render the Helm chart with `helm template` and check its contract with the Compose stack."""
 
+import shlex
 import shutil
 import subprocess
+import tomllib
 from pathlib import Path
 from typing import Any
 
 import pytest
 import yaml
 
-CHART_DIR = Path(__file__).resolve().parents[2] / "deploy" / "kubernetes" / "srdp-chart"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+CHART_DIR = REPO_ROOT / "deploy" / "kubernetes" / "srdp-chart"
 
 pytestmark = pytest.mark.skipif(shutil.which("helm") is None, reason="needs helm")
 
@@ -169,26 +172,51 @@ def srdp_images(manifests: list[Manifest], registry: str) -> list[str]:
     ]
 
 
-def test_one_value_moves_every_srdp_image_to_another_registry() -> None:
+def justfile_registry_args(registry: str) -> list[str]:
+    """Return the Justfile's `registry_args` as `--set` values, with its `registry` overridden."""
+    just = shutil.which("just")
+    if just is None:
+        pytest.skip("needs just")
+    # Fixed argv, no shell: the registry comes from this test module.
+    result = subprocess.run(  # noqa: S603
+        [just, "--set", "registry", registry, "--evaluate", "registry_args"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    args = shlex.split(result.stdout)
+    assert set(args[::2]) == {"--set-string"}, args
+    return args[1::2]
+
+
+def test_the_justfile_registry_moves_every_srdp_image() -> None:
     registry = "registry.example.com/acme"
     manifests = render(
         "values.yaml",
         "values-local.yaml",
-        set_values=(
-            f"global.srdpRegistry={registry}",
-            # The Dagster code location image is a subchart value the chart cannot
-            # template, so the Justfile's `registry` variable sets it alongside.
-            f"dagster.dagster-user-deployments.deployments[0].image.repository={registry}/srdp-etl",
-            "global.imagePullSecrets[0].name=registry-key",
-        ),
+        # The Dagster code location image is a subchart value the chart cannot
+        # template, so registry_args also sets its repository.
+        set_values=(*justfile_registry_args(registry), "global.imagePullSecrets[0].name=registry-key"),
     )
     images = srdp_images(manifests, registry)
     names = {image.rsplit("/", 1)[1].split(":")[0] for image in images}
-    assert names >= {"marimo", "srdp-api", "duckdb-ui", "hub", "streamlit", "srdp-setup"}
+    assert names >= {"marimo", "srdp-etl", "srdp-api", "duckdb-ui", "hub", "streamlit", "srdp-setup"}
     assert all(image.startswith(f"{registry}/") for image in images), images
     for name in ("marimo", "api", "streamlit", "srdp-setup"):
         spec = next(s for n, s in pod_specs(manifests) if n == name)
         assert spec["imagePullSecrets"] == [{"name": "registry-key"}]
+
+
+@pytest.mark.parametrize("values_file", ["values.yaml", "values-local.yaml", "values-prod.example.yaml"])
+def test_chart_registry_defaults_match_srdp_toml(values_file: str) -> None:
+    """Rendering without the Justfile must not land on a registry other than srdp.toml's."""
+    registry = tomllib.loads((REPO_ROOT / "srdp.toml").read_text())["deploy"]["registry"]
+    values = yaml.safe_load((CHART_DIR / values_file).read_text())
+    if "srdpRegistry" in values.get("global", {}):
+        assert values["global"]["srdpRegistry"] == registry
+    deployments = values["dagster"]["dagster-user-deployments"]["deployments"]
+    assert [d["image"]["repository"] for d in deployments] == [f"{registry}/srdp-etl"]
 
 
 def test_writers_and_readers_mount_ducklake_data_at_the_same_path(local: list[Manifest]) -> None:

@@ -16,7 +16,7 @@ All notable changes to SRDP are documented here. The format follows [Keep a Chan
 - Streamlit in the Helm chart, behind the login on `streamlit.<domain>`.
 - A shared `ducklake-data` volume in the chart, so the apps read the Parquet files that Dagster run pods write.
 - `global.srdpRegistry` and `global.imagePullSecrets` in the chart.
-  The `registry` variable in the `Justfile` sets the registry for every SRDP image.
+  `srdp.toml` holds the registry under `[deploy] registry`, and every `Justfile` deploy and build recipe reads it from there.
 
 ### Changed
 

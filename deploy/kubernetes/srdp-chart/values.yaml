@@ -4,9 +4,10 @@ global:
   # Differs in production (db-postgresql-primary), see values-prod.example.yaml.
   postgresqlHost: "db-postgresql"
   # Registry prefix for every image this repo builds (templates/_helpers.tpl
-  # srdp.image). The one exception is the Dagster code location image under
-  # dagster.dagster-user-deployments.deployments, a subchart value the chart
-  # cannot template: keep its repository on the same registry.
+  # srdp.image). The source is srdp.toml [deploy].registry: the Justfile
+  # deploy recipes override this value and the Dagster code location
+  # repository below, a subchart value the chart cannot template. This
+  # default must match srdp.toml, tests/deploy checks it.
   srdpRegistry: "rg.nl-ams.scw.cloud/srdp-registry"
   # Pod-level pull secrets for those images, e.g. [{name: registry-key}].
   imagePullSecrets: []

@@ -2,9 +2,12 @@ set shell := ["bash", "-c"]
 set dotenv-load := false
 
 namespace := "srdp"
-# Registry prefix of every image this repo builds. local-deploy passes it to the
-# chart as global.srdpRegistry and as the Dagster code location's repository.
-registry := "rg.nl-ams.scw.cloud/srdp-registry"
+# Registry prefix of every image this repo builds, from srdp.toml [deploy]. The
+# deploy recipes pass it to the chart as global.srdpRegistry and as the Dagster
+# code location's repository, a subchart value the chart cannot template.
+registry := `uv run --no-project python -c 'import sys, tomllib; sys.stdout.write(tomllib.load(open("srdp.toml", "rb"))["deploy"]["registry"])'`
+# Helm patches deployments[0] in place only when a -f file defines the list
+# (values.yaml or values-prod.yaml do), otherwise the --set replaces it.
 registry_args := "--set-string 'global.srdpRegistry=" + registry + "' --set-string 'dagster.dagster-user-deployments.deployments[0].image.repository=" + registry + "/srdp-etl'"
 kubeconfig := justfile_directory() + "/deploy/opentofu/scaleway/kubeconfig.yaml"
 
@@ -119,21 +122,21 @@ prod-traefik-only:
 	cd deploy/kubernetes && \
 		if [ ! -f "{{kubeconfig}}" ]; then echo "kubeconfig not found, run 'just prod-use-kubeconfig' first"; exit 1; fi; \
 		export KUBECONFIG="{{kubeconfig}}"; \
-		helm upgrade --install srdp srdp-chart --namespace {{namespace}} --create-namespace -f srdp-chart/values-prod.yaml --set zitadel.enabled=false --set oauth2-proxy.enabled=false --set dagster.enabled=false --set marimo.enabled=false --set quarto.enabled=false
+		helm upgrade --install srdp srdp-chart --namespace {{namespace}} --create-namespace -f srdp-chart/values-prod.yaml {{registry_args}} --set zitadel.enabled=false --set oauth2-proxy.enabled=false --set dagster.enabled=false --set marimo.enabled=false --set quarto.enabled=false
 
 # Deploy Traefik plus the auth stack only
 prod-auth-only:
 	cd deploy/kubernetes && \
 		if [ ! -f "{{kubeconfig}}" ]; then echo "kubeconfig not found, run 'just prod-use-kubeconfig' first"; exit 1; fi; \
 		export KUBECONFIG="{{kubeconfig}}"; \
-		helm upgrade srdp srdp-chart --namespace {{namespace}} --reset-values -f srdp-chart/values-prod.yaml --set zitadel.enabled=true --set oauth2-proxy.enabled=true --set dagster.enabled=false --set marimo.enabled=false --set quarto.enabled=false
+		helm upgrade srdp srdp-chart --namespace {{namespace}} --reset-values -f srdp-chart/values-prod.yaml {{registry_args}} --set zitadel.enabled=true --set oauth2-proxy.enabled=true --set dagster.enabled=false --set marimo.enabled=false --set quarto.enabled=false
 
 # Deploy the complete production stack
 prod-full:
 	cd deploy/kubernetes && \
 		if [ ! -f "{{kubeconfig}}" ]; then echo "kubeconfig not found, run 'just prod-use-kubeconfig' first"; exit 1; fi; \
 		export KUBECONFIG="{{kubeconfig}}"; \
-		helm upgrade srdp srdp-chart --namespace {{namespace}} --reset-values -f srdp-chart/values-prod.yaml
+		helm upgrade srdp srdp-chart --namespace {{namespace}} --reset-values -f srdp-chart/values-prod.yaml {{registry_args}}
 
 # Uninstall the production Helm release and release the LoadBalancer
 prod-uninstall:
@@ -151,7 +154,7 @@ prod-uninstall:
 
 # Build and push images to the Scaleway registry
 build-and-push:
-	source deploy/opentofu/scaleway/secrets.sh && bash deploy/opentofu/scaleway/build-and-push.sh
+	source deploy/opentofu/scaleway/secrets.sh && REGISTRY='{{registry}}' bash deploy/opentofu/scaleway/build-and-push.sh
 
 # ─── Development ──────────────────────────────────────────────────────────────
 

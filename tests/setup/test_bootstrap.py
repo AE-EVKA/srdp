@@ -72,6 +72,20 @@ def test_loads_databases_from_toml_and_passwords_from_env(
     assert settings.passwords["marquez"].get_secret_value() == "marquez-pw"
 
 
+def test_repo_srdp_toml_loads_next_to_its_deploy_table(monkeypatch: pytest.MonkeyPatch) -> None:
+    repo_toml = Path(__file__).resolve().parents[2] / "srdp.toml"
+
+    class TomlSettings(SetupSettings):
+        model_config = SettingsConfigDict(toml_file=repo_toml, toml_table_header=("setup",))
+
+    for role in ("ZITADEL", "DAGSTER", "MARQUEZ"):
+        monkeypatch.setenv(f"SETUP_PASSWORDS__{role}", "pw")
+
+    settings = TomlSettings()  # ty: ignore[missing-argument]
+
+    assert [t.name for t in settings.databases] == ["zitadel", "dagster", "marquez", "ducklake"]
+
+
 def test_missing_password_for_enabled_role_fails(settings_from_toml: type[SetupSettings]) -> None:
     with pytest.raises(ValidationError, match="SETUP_PASSWORDS__MARQUEZ"):
         settings_from_toml()  # ty: ignore[missing-argument]

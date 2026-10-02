@@ -36,7 +36,7 @@ cd deploy/opentofu/scaleway
 source ./secrets.sh
 ./build-and-push.sh
 ```
-This builds and pushes Marimo and srdp-etl (Dagster user code) to `rg.nl-ams.scw.cloud/srdp-registry`. Quarto is disabled by default (`quarto.enabled: false`), see `docs/02-configuration.md`.
+This builds and pushes Marimo and srdp-etl (Dagster user code) to the registry in `srdp.toml` under `[deploy] registry`. Quarto is disabled by default (`quarto.enabled: false`), see `docs/02-configuration.md`.
 
 ## 3) Provision infrastructure with OpenTofu
 
@@ -56,7 +56,8 @@ just prod-use-kubeconfig   # from repo root
 ## 5) Prepare production Helm values
 
 - Copy `deploy/kubernetes/srdp-chart/values-prod.example.yaml` to `deploy/kubernetes/srdp-chart/values-prod.yaml` if you are starting fresh.
-- Fill in `global.domain`, the `oauth2-proxy` cookie and whitelist domains, the ACME email for Traefik, and `global.srdpRegistry` together with the `srdp-etl` repository.
+- Fill in `global.domain`, the `oauth2-proxy` cookie and whitelist domains, and the ACME email for Traefik.
+- Set the registry in `srdp.toml` under `[deploy] registry`. The `prod-*` recipes pass it to the chart as `global.srdpRegistry` and as the `srdp-etl` repository.
   Use a real domain or `<lb-ip>.nip.io` once you know the load balancer IP.
 - The values files hold no passwords or keys.
   Before you install, create these Secrets in the `srdp` namespace, for example with External Secrets.
