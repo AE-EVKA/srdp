@@ -77,17 +77,26 @@ dagster:
               - sh
               - -c
               - |
-                for i in $(seq 1 30); do
-                  if psql "postgresql://postgres@db-postgresql:5432/postgres" -tAc \
-                    "SELECT 1 FROM pg_database WHERE datname = 'ducklake'" | grep -q 1; then
-                    exit 0
-                  fi
-                  echo "waiting for the ducklake database to be created ($i/30)..."
+                for i in $(seq 1 60); do
+                  psql -tAc "SELECT 1" >/dev/null && exit 0
+                  echo "waiting for $PGUSER to log in to $PGDATABASE ($i/60)..."
                   sleep 2
                 done
-                echo "ducklake database still missing after 30 attempts, giving up." >&2
                 exit 1
+            securityContext:
+              runAsNonRoot: true
+              runAsUser: 70
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop: [ALL]
             env:
+              - name: PGHOST
+                value: db-postgresql
+              - name: PGUSER
+                value: postgres
+              - name: PGDATABASE
+                value: ducklake
               - name: PGPASSWORD
                 valueFrom:
                   secretKeyRef:

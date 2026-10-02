@@ -6,12 +6,17 @@ All notable changes to SRDP are documented here. The format follows [Keep a Chan
 
 ### Added
 
-- `srdp-setup` service that creates every service database and role before the services that need them start, on Docker Compose and Kubernetes. It runs on every deploy, so it also repairs an existing volume that is missing a database, and it resets each role's password to the configured value. The database list lives in the `[setup]` table of the new repo-root `srdp.toml` (Compose) and in `setup.databases` in the chart's `values.yaml` (Kubernetes).
-- `srdp.toml`, the start of the central platform config from #42. It holds no secrets, and each consumer reads only its own table. `[setup]` is the first table.
-- `MARQUEZ_DB_PASSWORD` in `deploy/docker/.env`. Existing Compose setups need to add it to `.env`.
+- `srdp-setup` service that creates every service database and role before the services that need them start, on Docker Compose and Kubernetes.
+  It runs on every deploy, so it also repairs an existing volume that is missing a database, and it resets each role's password to the configured value.
+  The database list lives in the `[setup]` table of the new repo-root `srdp.toml` (Compose) and in `setup.databases` in the chart's `values.yaml` (Kubernetes).
+- `srdp.toml`, the start of the central platform config from #42.
+  It holds no secrets, and `[setup]` is its first table.
+- `MARQUEZ_DB_PASSWORD` in `deploy/docker/.env`.
+  Existing Compose setups need to add it to `.env`.
 - Streamlit in the Helm chart, behind the login on `streamlit.<domain>`.
 - A shared `ducklake-data` volume in the chart, so the apps read the Parquet files that Dagster run pods write.
-- `global.srdpRegistry` and `global.imagePullSecrets` in the chart. The `registry` variable in the `Justfile` sets the registry for every SRDP image.
+- `global.srdpRegistry` and `global.imagePullSecrets` in the chart.
+  `srdp.toml` holds the registry under `[deploy] registry`, and every `Justfile` deploy and build recipe reads it from there.
 - `S3StorageBackend` stores the DuckLake data files in S3-compatible object storage (Scaleway, Hetzner, MinIO) when `DUCKLAKE_STORAGE_BACKEND=s3` is set. Its settings live in their own `S3StorageSettings` (`DUCKLAKE_S3_*`), apart from the Postgres catalog settings. Endpoint, URL style and region are required, with no AWS defaults, and the DuckDB secret is scoped to the lake prefix. The default stays `local`, so nothing changes without the setting. Part of #56.
 - `srdp.io.dbt_plugin`, a dbt-duckdb plugin that attaches DuckLake with the same storage settings as Dagster, so a dbt profile no longer needs its own copy of them.
 - `S3StorageBackend.dlt_filesystem_config()` renders the same bucket, endpoint and key for a dlt filesystem destination.
@@ -22,17 +27,35 @@ All notable changes to SRDP are documented here. The format follows [Keep a Chan
 
 ### Changed
 
-- The chart holds no passwords or keys. Every consumer reads a fixed-name Secret (`srdp-postgres`, `srdp-zitadel`, `srdp-oauth2-proxy`, `srdp-dagster-postgresql`, `srdp-marquez`). In kind, `templates/local-secrets.yaml` creates them from `values-local.yaml`. Existing `values-prod.yaml` files must drop their password values and create these Secrets instead.
-- Image `repository` values of the chart's own apps are bare names such as `marimo`, prefixed by `global.srdpRegistry`. Existing `values-prod.yaml` files that set a full repository path must shorten it.
-- Dagster in the chart launches at most one run at a time.
-- The base Kubernetes run profile requests 512Mi with a 1536Mi limit, since a full `srdp_etl_job` run peaks at about 1Gi.
-- Marquez loads its own config through `MARQUEZ_CONFIG` and reads its database password from `MARQUEZ_DB_PASSWORD`. Its role no longer uses the literal password `marquez`.
+- The chart holds no passwords or keys.
+  Every consumer reads a fixed-name Secret (`srdp-postgres`, `srdp-zitadel`, `srdp-oauth2-proxy`, `srdp-dagster-postgresql`, `srdp-marquez`).
+  In kind, `templates/local-secrets.yaml` creates them from `values-local.yaml`.
+  Existing `values-prod.yaml` files must drop their password values and create these Secrets instead.
+  In kind, every pod that reads one of them restarts when `values-local.yaml` changes, through a `checksum/local-secrets` pod annotation.
+- Image `repository` values of the chart's own apps are bare names such as `marimo`, prefixed by `global.srdpRegistry`.
+  Existing `values-prod.yaml` files that set a full repository path must shorten it.
+- Dagster queues runs and launches at most 3 at a time, of which at most one backfill (`workload_kind: backfill`), on both Compose and Kubernetes.
+- The base and fast-lane Kubernetes run profiles request 512Mi with a 1536Mi limit, since a full `srdp_etl_job` run peaks at about 1Gi.
+- `just prod-traefik-only` deploys only Traefik and the hub page, and `just prod-auth-only` adds only Zitadel, its database and OAuth2-Proxy.
+  Both leave every app and the `srdp-setup` Job off.
+- Marquez loads its own config through `MARQUEZ_CONFIG` and reads its database password from `MARQUEZ_DB_PASSWORD`.
+  Its role no longer uses the literal password `marquez`, and its config no longer holds the unused OpenSearch settings.
 - Chart templates read the Postgres host from `global.postgresqlHost`, so production's `db-postgresql-primary` works without template edits.
 - CI installs the `dbt` extra, so `ty` can resolve the dbt-duckdb plugin's imports.
+- On Kubernetes, each database consumer waits in an init container until it can log in to its own database with its own password.
+  The chart templates share the `srdp.waitForDbLogin` helper, and the Dagster values carry literal copies because the subchart can't use it.
+- `srdp-setup` validates its config strictly: unknown keys, database and role names that aren't lowercase Postgres identifiers of at most 63 characters, and the superuser as a role all fail at startup.
+- `srdp-setup` sends role passwords as SCRAM hashes, so a logged statement never holds a plain password.
+- `srdp-setup` and the wait containers run as non-root with a read-only filesystem and no capabilities.
+- The chart's setup Job runs before Zitadel's hooks, gives up after 2 retries or 4 minutes, and can be switched off with `setup.enabled`.
+  It stays after it succeeds, until the next install or upgrade, so `kubectl logs job/srdp-setup` always shows the last run.
+  Each connection attempt times out after 5 seconds, so an unreachable host can't use up those 4 minutes.
+- `just build-and-push` also builds and pushes the `srdp-setup` image, and stops on the first failed build or push.
 
 ### Removed
 
-- `deploy/docker/initdb/` and the chart's `zitadel-db.primary.initdb.scripts`. The `srdp-setup` service replaces both.
+- `deploy/docker/initdb/` and the chart's `zitadel-db.primary.initdb.scripts`.
+  The `srdp-setup` service replaces both.
 
 ### Fixed
 

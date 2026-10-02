@@ -7,13 +7,8 @@ decision-makers: Yannick Vinkesteijn
 
 # Deployment and project isolation model
 
-> **Revised 2026-09-27**, a material amendment: the catalog default changed from
-> per-project to per-tenant (see "Project as a DuckLake catalog, tenant as the catalog default" and
-> "Mapping onto DuckDB three-level naming" below), and the project-to-code-location relationship
-> changed from 1:1 to a project being a bundle of any number of code locations, services, and
-> endpoints (see [ADR-0011](./0011-project-onboarding-and-extension.md)). The original 2026-06-08
-> decision (deployment as the isolation unit, catalogs over row/column security) still stands, what
-> changed is the granularity below the deployment level.
+> **Revised 2026-09-27**, a material amendment: the catalog default changed from per-project to per-tenant (see "Project as a DuckLake catalog, tenant as the catalog default" and "Mapping onto DuckDB three-level naming" below), and the project-to-code-location relationship changed from 1:1 to a project being a bundle of any number of code locations, services, and endpoints (see [ADR-0011](./0011-project-onboarding-and-extension.md)).
+> The original 2026-06-08 decision (deployment as the isolation unit, catalogs over row/column security) still stands, what changed is the granularity below the deployment level.
 
 ## Context and Problem Statement
 
@@ -35,8 +30,11 @@ The answer drives the DuckLake catalog layout, the IO manager's asset-key mappin
 Chosen option: "Deployment is the isolation unit; a project is its own DuckLake catalog", because it gives a hard isolation boundary between customers without a multi-tenant security model, and a clean, native subdivision inside a deployment that maps directly onto DuckDB's three-level naming. DuckLake and DuckDB have no per-row or per-column security, so any in-data-plane tenant separation (option 3) would have to be enforced entirely in application code over shared tables, which is both fragile and the wrong place for an isolation boundary.
 
 > **Isolation vs. minimization.** The rejection above is about the *isolation* boundary between customers and projects, which stays hard (separate catalogs, separate deployments). It does **not** rule out fine-grained data *minimization* within a project, meaning which columns and rows a given consumer may see. [ADR-0008](./0008-identity-propagation-and-data-contracts.md) adds that via a constrained evaluator on mediated read paths.
->
-> The two are different jobs. The evaluator is defence-in-depth inside the catalog boundary, never a replacement for it. A bug in it stays contained to within-project data and within-project principals, tenant boundaries hold regardless. Option 3 was rejected because it would make row/column scoping the isolation boundary, where that fragility is unacceptable. As a minimization layer, the isolation load stays entirely on the catalog boundary described above.
+> The two are different jobs.
+> The evaluator is defence-in-depth inside the catalog boundary, never a replacement for it.
+> A bug in it stays contained to within-project data and within-project principals, tenant boundaries hold regardless.
+> Option 3 was rejected because it would make row/column scoping the isolation boundary, where that fragility is unacceptable.
+> As a minimization layer, the isolation load stays entirely on the catalog boundary described above.
 
 ### Deployment as the isolation unit
 
@@ -60,9 +58,8 @@ Each project's IO manager resource is configured with whichever catalog it uses 
 
 ### Mapping onto DuckDB three-level naming
 
-DuckDB supports exactly three levels: `catalog.schema.table`. Which two of the three carry the
-project dimension depends on whether a project shares its tenant's catalog (the default) or has split
-into its own:
+DuckDB supports exactly three levels: `catalog.schema.table`.
+Which two of the three carry the project dimension depends on whether a project shares its tenant's catalog (the default) or has split into its own:
 
 | Level | Shared tenant catalog (default) | Dedicated project catalog (split out) |
 |:---|:---|:---|
@@ -70,19 +67,12 @@ into its own:
 | schema | `project_layer` (e.g. `sales_raw`) | layer (e.g. `raw`) |
 | table | entity (unchanged from ADR-0004) | entity (unchanged from ADR-0004) |
 
-A dedicated catalog leaves [ADR-0004](./0004-data-organization-and-ingestion.md)'s fixed mapping
-exactly as written: catalog = project, schema = the asset key's layer segment, table = the remaining
-segments joined (`sales.raw.orders`). ADR-0004 gives project no role in the schema/table derivation at
-all today, it comes entirely from which catalog is attached. Sharing a tenant catalog removes that free
-project boundary: two projects both writing an asset key `["raw", "orders"]` would otherwise collide on
-the identical `raw.orders` table inside the one shared catalog. The fix is a one-line addition to
-ADR-0004's mapping for the shared case only: the physical schema name is the project name and the
-layer joined (`sales_raw` instead of the bare layer name), resolved from the project's registered configuration
-(ADR-0011), the asset key itself is untouched either way. ADR-0004's table derivation (domain segments
-joined with `_`) is genuinely unchanged in both cases, only the schema level gains a project prefix,
-and only when sharing a catalog.
-A single-project deployment (such as the `projects/cbs-example/` reference) is just one catalog either
-way, the distinction only matters once a tenant has more than one project.
+A dedicated catalog leaves [ADR-0004](./0004-data-organization-and-ingestion.md)'s fixed mapping exactly as written: catalog = project, schema = the asset key's layer segment, table = the remaining segments joined (`sales.raw.orders`).
+ADR-0004 gives project no role in the schema/table derivation at all today, it comes entirely from which catalog is attached.
+Sharing a tenant catalog removes that free project boundary: two projects both writing an asset key `["raw", "orders"]` would otherwise collide on the identical `raw.orders` table inside the one shared catalog.
+The fix is a one-line addition to ADR-0004's mapping for the shared case only: the physical schema name is the project name and the layer joined (`sales_raw` instead of the bare layer name), resolved from the project's registered configuration (ADR-0011), the asset key itself is untouched either way.
+ADR-0004's table derivation (domain segments joined with `_`) is genuinely unchanged in both cases, only the schema level gains a project prefix, and only when sharing a catalog.
+A single-project deployment (such as the `projects/cbs-example/` reference) is just one catalog either way, the distinction only matters once a tenant has more than one project.
 
 ### Multiple catalogs
 
@@ -90,12 +80,9 @@ DuckDB natively supports attaching multiple catalogs in a single connection. Bey
 
 ### Access and the read path
 
-Access grants are scoped to projects (see [ADR-0005](./0005-authorization-and-data-access.md)). For a
-project with its own dedicated catalog, a user's read connection attaches only the catalogs they are
-permitted to read, read-only, attach or detach, no row/column rules needed (see
-[ADR-0002](./0002-api-and-access-strategy.md) for the read and write split). For a project sharing its
-tenant's default catalog, the same grant is schema-scoped inside that one attached catalog instead, the
-softer tier described above.
+Access grants are scoped to projects (see [ADR-0005](./0005-authorization-and-data-access.md)).
+For a project with its own dedicated catalog, a user's read connection attaches only the catalogs they are permitted to read, read-only, attach or detach, no row/column rules needed (see [ADR-0002](./0002-api-and-access-strategy.md) for the read and write split).
+For a project sharing its tenant's default catalog, the same grant is schema-scoped inside that one attached catalog instead, the softer tier described above.
 
 ### Consequences
 

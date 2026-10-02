@@ -1,21 +1,29 @@
 """Render the Helm chart with `helm template` and check its contract with the Compose stack."""
 
+import re
+import shlex
 import shutil
 import subprocess
+import tomllib
 from pathlib import Path
 from typing import Any
 
 import pytest
 import yaml
 
-CHART_DIR = Path(__file__).resolve().parents[2] / "deploy" / "kubernetes" / "srdp-chart"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+CHART_DIR = REPO_ROOT / "deploy" / "kubernetes" / "srdp-chart"
 
-pytestmark = pytest.mark.skipif(
-    shutil.which("helm") is None or not (CHART_DIR / "charts").is_dir(),
-    reason="needs helm and the chart dependencies (helm dependency build)",
-)
+pytestmark = pytest.mark.skipif(shutil.which("helm") is None, reason="needs helm")
 
 Manifest = dict[str, Any]
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _chart_dependencies() -> None:
+    """Fail rather than skip without the subcharts, so CI cannot pass by testing nothing."""
+    if not (CHART_DIR / "charts").is_dir():
+        pytest.fail("chart dependencies missing, run `just chart-deps`")
 
 
 def render(*values_files: str, set_values: tuple[str, ...] = ()) -> list[Manifest]:
@@ -80,11 +88,15 @@ def test_dagster_code_location_uses_the_compose_module_path(local: list[Manifest
     assert args[args.index("-m") + 1] == "etl.definitions"
 
 
-def test_dagster_runs_one_run_at_a_time(local: list[Manifest]) -> None:
+def test_compose_and_chart_queue_runs_the_same_way(local: list[Manifest]) -> None:
+    """At most 3 runs at once, one of them a backfill, on both deployment targets."""
     instance = yaml.safe_load(find(local, "ConfigMap", "srdp-dagster-instance")["data"]["dagster.yaml"])
-    coordinator = instance["run_coordinator"]
-    assert coordinator["class"] == "QueuedRunCoordinator"
-    assert coordinator["config"]["max_concurrent_runs"] == 1
+    compose = yaml.safe_load((REPO_ROOT / "config" / "dagster" / "dagster.yaml").read_text())
+    backfills = [{"key": "workload_kind", "value": "backfill", "limit": 1}]
+    for coordinator in (instance["run_coordinator"], compose["run_coordinator"]):
+        assert coordinator["class"] == "QueuedRunCoordinator"
+        assert coordinator["config"]["max_concurrent_runs"] == 3
+        assert coordinator["config"]["tag_concurrency_limits"] == backfills
 
 
 @pytest.mark.parametrize(
@@ -165,26 +177,110 @@ def srdp_images(manifests: list[Manifest], registry: str) -> list[str]:
     ]
 
 
-def test_one_value_moves_every_srdp_image_to_another_registry() -> None:
+def just_evaluate(variable: str, *overrides: str) -> list[str]:
+    """Return a Justfile `--set`/`--set-string` args variable as `--set` values, with `--set` overrides."""
+    just = shutil.which("just")
+    if just is None:
+        pytest.skip("needs just")
+    # Fixed argv, no shell: every argument comes from this test module.
+    result = subprocess.run(  # noqa: S603
+        [just, *overrides, "--evaluate", variable], cwd=REPO_ROOT, capture_output=True, text=True, check=True
+    )
+    args = shlex.split(result.stdout)
+    assert set(args[::2]) <= {"--set", "--set-string"}, args
+    return args[1::2]
+
+
+def test_the_justfile_registry_moves_every_srdp_image() -> None:
     registry = "registry.example.com/acme"
     manifests = render(
         "values.yaml",
         "values-local.yaml",
+        # The Dagster code location image is a subchart value the chart cannot
+        # template, so registry_args also sets its repository.
         set_values=(
-            f"global.srdpRegistry={registry}",
-            # The Dagster code location image is a subchart value the chart cannot
-            # template, so the Justfile's `registry` variable sets it alongside.
-            f"dagster.dagster-user-deployments.deployments[0].image.repository={registry}/srdp-etl",
+            *just_evaluate("registry_args", "--set", "registry", registry),
             "global.imagePullSecrets[0].name=registry-key",
         ),
     )
     images = srdp_images(manifests, registry)
     names = {image.rsplit("/", 1)[1].split(":")[0] for image in images}
-    assert names >= {"marimo", "srdp-api", "duckdb-ui", "hub", "streamlit", "srdp-setup"}
+    assert names >= {"marimo", "srdp-etl", "srdp-api", "duckdb-ui", "hub", "streamlit", "srdp-setup"}
     assert all(image.startswith(f"{registry}/") for image in images), images
     for name in ("marimo", "api", "streamlit", "srdp-setup"):
         spec = next(s for n, s in pod_specs(manifests) if n == name)
         assert spec["imagePullSecrets"] == [{"name": "registry-key"}]
+
+
+@pytest.mark.parametrize("values_file", ["values.yaml", "values-local.yaml", "values-prod.example.yaml"])
+def test_chart_registry_defaults_match_srdp_toml(values_file: str) -> None:
+    """Rendering without the Justfile must not land on a registry other than srdp.toml's."""
+    registry = tomllib.loads((REPO_ROOT / "srdp.toml").read_text())["deploy"]["registry"]
+    # The Justfile puts it inside single-quoted shell args and Helm --set values,
+    # so a quote, comma or space would break or split them.
+    assert re.fullmatch(r"[a-z0-9.-]+(:[0-9]+)?(/[a-z0-9._-]+)*", registry), registry
+    values = yaml.safe_load((CHART_DIR / values_file).read_text())
+    if "srdpRegistry" in values.get("global", {}):
+        assert values["global"]["srdpRegistry"] == registry
+    deployments = values["dagster"]["dagster-user-deployments"]["deployments"]
+    assert [d["image"]["repository"] for d in deployments] == [f"{registry}/srdp-etl"]
+
+
+LOCAL_SECRET_READERS = ["marquez", "api", "duckdb-ui", "marimo", "streamlit"]
+SUBCHART_SECRET_READERS = [
+    "srdp-oauth2-proxy",
+    "srdp-dagster-webserver",
+    "srdp-dagster-daemon",
+    "srdp-dagster-user-deployments-srdp-etl",
+]
+
+
+def pod_annotations(manifests: list[Manifest], name: str) -> dict[str, str]:
+    """Return the pod template annotations of the Deployment with this name."""
+    return find(manifests, "Deployment", name)["spec"]["template"]["metadata"].get("annotations") or {}
+
+
+@pytest.mark.parametrize("name", LOCAL_SECRET_READERS)
+def test_local_secret_change_rolls_chart_pods(local: list[Manifest], name: str) -> None:
+    """A secretKeyRef does not change the pod spec, so a checksum annotation rolls the pod instead."""
+    changed = render("values.yaml", "values-local.yaml", set_values=("localSecrets.marquez.dbPassword=changed",))
+    before = pod_annotations(local, name)["checksum/local-secrets"]
+    assert pod_annotations(changed, name)["checksum/local-secrets"] != before
+
+
+def test_default_render_has_no_local_secrets_checksum() -> None:
+    manifests = render("values.yaml")
+    for name in LOCAL_SECRET_READERS:
+        assert "checksum/local-secrets" not in pod_annotations(manifests, name), name
+
+
+@pytest.mark.parametrize("name", SUBCHART_SECRET_READERS)
+def test_local_deploy_rolls_subchart_pods_on_local_secret_change(name: str) -> None:
+    """Subcharts cannot hash the parent's Secrets, so local-deploy passes the checksum in."""
+    manifests = render(
+        "values.yaml",
+        "values-local.yaml",
+        set_values=tuple(just_evaluate("local_secrets_args", "--set", "local_secrets_sum", "abc")),
+    )
+    assert pod_annotations(manifests, name)["checksum/local-secrets"] == "abc"
+
+
+def test_setup_job_outlives_its_success(local: list[Manifest]) -> None:
+    """Its logs are the evidence the troubleshooting docs point to, so only the next hook run replaces it."""
+    job = find(local, "Job", "srdp-setup")
+    assert job["metadata"]["annotations"]["helm.sh/hook-delete-policy"] == "before-hook-creation"
+
+
+@pytest.mark.parametrize(
+    ("variable", "expected"),
+    [
+        ("prod_traefik_only_args", {"srdp-traefik", "hub"}),
+        ("prod_auth_only_args", {"srdp-traefik", "hub", "srdp-zitadel", "srdp-zitadel-login", "srdp-oauth2-proxy"}),
+    ],
+)
+def test_staged_prod_recipes_deploy_only_what_their_name_says(variable: str, expected: set[str]) -> None:
+    manifests = render("values-prod.example.yaml", set_values=tuple(just_evaluate(variable)))
+    assert {m["metadata"]["name"] for m in manifests if m["kind"] == "Deployment"} == expected
 
 
 def test_writers_and_readers_mount_ducklake_data_at_the_same_path(local: list[Manifest]) -> None:

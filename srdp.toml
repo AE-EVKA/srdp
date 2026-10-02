@@ -1,21 +1,14 @@
-# srdp.toml: the central platform config (issue #42, ADR-0011).
-#
-# It describes a deployment and never holds secrets. Secret values stay in
-# deploy/docker/.env (Compose) or the chart's values and Secrets (Kubernetes).
-# Each consumer reads only its own table, so new tables can be added without
-# touching existing consumers. Today the only table is [setup].
-#
-# The Kubernetes chart does not read this file. Its equivalent of [setup] is
-# setup.databases in deploy/kubernetes/srdp-chart/values.yaml, keep the two in
-# step until the srdp CLI renders the chart values from this file (#42).
+# Central platform config (#42). Never holds secrets.
+# Each table has its own consumer, which ignores the other tables.
 
-# ---------------------------------------------------------------------------
-# [setup]: read by the srdp-setup service (src/srdp/setup/), mounted at
-# /etc/srdp/srdp.toml. Each database entry with a `role` needs that role's
-# password in SETUP_PASSWORDS__<ROLE>, set on the srdp-setup service in
-# deploy/docker/docker-compose.yml and sourced from .env. An entry without a
-# `role` is owned by the Postgres superuser.
-# ---------------------------------------------------------------------------
+# Read by the Justfile: image builds, kind loads and every Helm deploy.
+[deploy]
+# Registry prefix of every image this repo builds. The chart's defaults
+# (global.srdpRegistry, the srdp-etl repository) must match it, a test checks.
+registry = "rg.nl-ams.scw.cloud/srdp-registry"
+
+# Read by the srdp-setup service. The chart keeps its own copy in
+# setup.databases, keep them in step.
 [setup]
 
 [[setup.databases]]
