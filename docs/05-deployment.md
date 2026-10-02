@@ -84,7 +84,7 @@ The production values template enables PostgreSQL replication (`architecture: re
 
 ## 6) Deploy with Helm (staged rollout)
 
-### A. Bring up Traefik only (to get the LB IP)
+### A. Bring up Traefik and the hub page only (to get the LB IP)
 
 ```bash
 just prod-traefik-only
@@ -104,6 +104,8 @@ Replace every occurrence of the old LB IP in `values-prod.yaml` with `<LB_IP>.ni
 - `oauth2-proxy.extraArgs`: `cookie-domain`, `whitelist-domain`, `oidc-issuer-url`, and the `Host:auth.…` header
 
 ### C. Enable Zitadel + OAuth2-Proxy
+
+The apps and the `srdp-setup` Job stay off until the final deploy.
 
 ```bash
 just prod-auth-only

@@ -46,7 +46,7 @@ icon: lucide/life-buoy
 
 ### Dagster webserver CrashLoopBackOff with `password authentication failed for user "dagster"`
 
-- Cause: The `dagster` role's password doesn't match `dagster.postgresql.postgresqlPassword`, or the `srdp-setup` Job that creates and re-syncs it didn't run or failed.
+- Cause: The `dagster` role's password doesn't match the Secret `srdp-dagster-postgresql`, key `postgresql-password` (locally `localSecrets.dagster.dbPassword` in `values-local.yaml`), or the `srdp-setup` Job that creates and re-syncs it didn't run or failed.
 - Check the Job's logs with `kubectl -n srdp logs job/srdp-setup`.
   The Job stays until the next install or upgrade, so its logs show the last run, failed or successful.
   A missing `SETUP_PASSWORDS__<ROLE>` fails the Job before it touches Postgres.

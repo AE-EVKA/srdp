@@ -269,9 +269,11 @@ dagster:
     postgresqlDatabase: dagster
     service:
       port: 5432
-  # K8sRunLauncher starts every run in its own pod, so unlike Compose two runs
-  # can overlap. Whether DuckLake handles two concurrent writers safely is
-  # still open, so queue runs and launch at most one at a time.
+  # DuckLake handles concurrent writers through its Postgres catalog, so runs
+  # can overlap. The cap protects node memory (each run pod may take 1536Mi,
+  # a backfill 2Gi) and Postgres connections, and the queue is what applies
+  # dagster/priority for the fast lane. Same limits as Compose's
+  # config/dagster/dagster.yaml, a test checks.
   dagsterDaemon:
     extraPrependedInitContainers: *wait-for-dagster-db
     runCoordinator:
@@ -279,7 +281,11 @@ dagster:
       type: QueuedRunCoordinator
       config:
         queuedRunCoordinator:
-          maxConcurrentRuns: 1
+          maxConcurrentRuns: 3
+          tagConcurrencyLimits:
+            - key: workload_kind
+              value: backfill
+              limit: 1
   runLauncher:
     type: K8sRunLauncher
     config:

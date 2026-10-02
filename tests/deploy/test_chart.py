@@ -87,11 +87,15 @@ def test_dagster_code_location_uses_the_compose_module_path(local: list[Manifest
     assert args[args.index("-m") + 1] == "etl.definitions"
 
 
-def test_dagster_runs_one_run_at_a_time(local: list[Manifest]) -> None:
+def test_compose_and_chart_queue_runs_the_same_way(local: list[Manifest]) -> None:
+    """At most 3 runs at once, one of them a backfill, on both deployment targets."""
     instance = yaml.safe_load(find(local, "ConfigMap", "srdp-dagster-instance")["data"]["dagster.yaml"])
-    coordinator = instance["run_coordinator"]
-    assert coordinator["class"] == "QueuedRunCoordinator"
-    assert coordinator["config"]["max_concurrent_runs"] == 1
+    compose = yaml.safe_load((REPO_ROOT / "config" / "dagster" / "dagster.yaml").read_text())
+    backfills = [{"key": "workload_kind", "value": "backfill", "limit": 1}]
+    for coordinator in (instance["run_coordinator"], compose["run_coordinator"]):
+        assert coordinator["class"] == "QueuedRunCoordinator"
+        assert coordinator["config"]["max_concurrent_runs"] == 3
+        assert coordinator["config"]["tag_concurrency_limits"] == backfills
 
 
 @pytest.mark.parametrize(
@@ -173,7 +177,7 @@ def srdp_images(manifests: list[Manifest], registry: str) -> list[str]:
 
 
 def just_evaluate(variable: str, *overrides: str) -> list[str]:
-    """Return a Justfile `--set-string` args variable as `--set` values, with `--set` overrides."""
+    """Return a Justfile `--set`/`--set-string` args variable as `--set` values, with `--set` overrides."""
     just = shutil.which("just")
     if just is None:
         pytest.skip("needs just")
@@ -182,7 +186,7 @@ def just_evaluate(variable: str, *overrides: str) -> list[str]:
         [just, *overrides, "--evaluate", variable], cwd=REPO_ROOT, capture_output=True, text=True, check=True
     )
     args = shlex.split(result.stdout)
-    assert set(args[::2]) == {"--set-string"}, args
+    assert set(args[::2]) <= {"--set", "--set-string"}, args
     return args[1::2]
 
 
@@ -260,6 +264,18 @@ def test_setup_job_outlives_its_success(local: list[Manifest]) -> None:
     """Its logs are the evidence the troubleshooting docs point to, so only the next hook run replaces it."""
     job = find(local, "Job", "srdp-setup")
     assert job["metadata"]["annotations"]["helm.sh/hook-delete-policy"] == "before-hook-creation"
+
+
+@pytest.mark.parametrize(
+    ("variable", "expected"),
+    [
+        ("prod_traefik_only_args", {"srdp-traefik", "hub"}),
+        ("prod_auth_only_args", {"srdp-traefik", "hub", "srdp-zitadel", "srdp-zitadel-login", "srdp-oauth2-proxy"}),
+    ],
+)
+def test_staged_prod_recipes_deploy_only_what_their_name_says(variable: str, expected: set[str]) -> None:
+    manifests = render("values-prod.example.yaml", set_values=tuple(just_evaluate(variable)))
+    assert {m["metadata"]["name"] for m in manifests if m["kind"] == "Deployment"} == expected
 
 
 def test_writers_and_readers_mount_ducklake_data_at_the_same_path(local: list[Manifest]) -> None:

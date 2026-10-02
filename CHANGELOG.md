@@ -27,8 +27,10 @@ All notable changes to SRDP are documented here. The format follows [Keep a Chan
   In kind, every pod that reads one of them restarts when `values-local.yaml` changes, through a `checksum/local-secrets` pod annotation.
 - Image `repository` values of the chart's own apps are bare names such as `marimo`, prefixed by `global.srdpRegistry`.
   Existing `values-prod.yaml` files that set a full repository path must shorten it.
-- Dagster in the chart launches at most one run at a time.
-- The base Kubernetes run profile requests 512Mi with a 1536Mi limit, since a full `srdp_etl_job` run peaks at about 1Gi.
+- Dagster queues runs and launches at most 3 at a time, of which at most one backfill (`workload_kind: backfill`), on both Compose and Kubernetes.
+- The base and fast-lane Kubernetes run profiles request 512Mi with a 1536Mi limit, since a full `srdp_etl_job` run peaks at about 1Gi.
+- `just prod-traefik-only` deploys only Traefik and the hub page, and `just prod-auth-only` adds only Zitadel, its database and OAuth2-Proxy.
+  Both leave every app and the `srdp-setup` Job off.
 - Marquez loads its own config through `MARQUEZ_CONFIG` and reads its database password from `MARQUEZ_DB_PASSWORD`.
   Its role no longer uses the literal password `marquez`, and its config no longer holds the unused OpenSearch settings.
 - Chart templates read the Postgres host from `global.postgresqlHost`, so production's `db-postgresql-primary` works without template edits.
