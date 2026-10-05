@@ -366,21 +366,35 @@ def test_local_storage_stays_the_default_and_needs_no_s3_key(local: list[Manifes
     assert not [m for m in local if m["kind"] in {"Deployment", "StatefulSet"} and m["metadata"]["name"] == "garage"]
 
 
+def setup_toml(manifests: list[Manifest]) -> dict[str, Any]:
+    """Return the [setup] table the srdp-setup Job reads."""
+    return tomllib.loads(find(manifests, "ConfigMap", "srdp-setup-config")["data"]["srdp.toml"])["setup"]
+
+
 def test_s3_setup_job_gives_garage_exactly_the_keys_the_consumers_get(local_s3: list[Manifest]) -> None:
     assert not [m for m in local_s3 if m["kind"] == "Job" and m["metadata"]["name"] == "garage-setup"]
     env = find(local_s3, "Job", "srdp-setup")["spec"]["template"]["spec"]["containers"][0]["env"]
     refs = {e["name"]: e["valueFrom"]["secretKeyRef"] for e in env if "valueFrom" in e}
-    assert refs["GARAGE_WRITER_KEY_ID"] == {"name": WRITER_KEY, "key": "DUCKLAKE_S3_KEY_ID"}
-    assert refs["GARAGE_WRITER_SECRET"] == {"name": WRITER_KEY, "key": "DUCKLAKE_S3_SECRET"}
-    assert refs["GARAGE_READER_KEY_ID"] == {"name": READER_KEY, "key": "DUCKLAKE_S3_KEY_ID"}
-    assert refs["GARAGE_READER_SECRET"] == {"name": READER_KEY, "key": "DUCKLAKE_S3_SECRET"}
+    assert refs["SETUP_GARAGE__ADMIN_TOKEN"] == {"name": "srdp-garage", "key": "admin-token"}
+    assert refs["SETUP_GARAGE__WRITER_KEY_ID"] == {"name": WRITER_KEY, "key": "DUCKLAKE_S3_KEY_ID"}
+    assert refs["SETUP_GARAGE__WRITER_SECRET"] == {"name": WRITER_KEY, "key": "DUCKLAKE_S3_SECRET"}
+    assert refs["SETUP_GARAGE__READER_KEY_ID"] == {"name": READER_KEY, "key": "DUCKLAKE_S3_KEY_ID"}
+    assert refs["SETUP_GARAGE__READER_SECRET"] == {"name": READER_KEY, "key": "DUCKLAKE_S3_SECRET"}
+    assert not [e["name"] for e in env if e["name"].startswith("GARAGE_")]
+
+
+def test_s3_setup_job_runs_the_garage_step_on_the_consumers_bucket(local_s3: list[Manifest]) -> None:
+    garage = setup_toml(local_s3)["garage"]
     storage = find(local_s3, "ConfigMap", "srdp-ducklake-storage")["data"]
-    assert next(e["value"] for e in env if e["name"] == "GARAGE_BUCKET") == storage["DUCKLAKE_S3_BUCKET"]
+    assert garage == {"enabled": True, "admin_url": "http://garage:3903", "bucket": storage["DUCKLAKE_S3_BUCKET"]}
+    admin_port = next(p["port"] for p in find(local_s3, "Service", "garage")["spec"]["ports"] if p["name"] == "admin")
+    assert garage["admin_url"].endswith(f":{admin_port}")
 
 
 def test_setup_job_skips_the_garage_step_without_garage(local: list[Manifest]) -> None:
+    assert setup_toml(local)["garage"] == {"enabled": False}
     env = find(local, "Job", "srdp-setup")["spec"]["template"]["spec"]["containers"][0]["env"]
-    assert not [e["name"] for e in env if e["name"].startswith("GARAGE_")]
+    assert not [e["name"] for e in env if e["name"].startswith(("GARAGE_", "SETUP_GARAGE__"))]
 
 
 def bucket_wait(spec: Manifest) -> Manifest:

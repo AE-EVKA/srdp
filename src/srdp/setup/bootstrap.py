@@ -20,6 +20,8 @@ from pydantic_settings import (
     TomlConfigSettingsSource,
 )
 
+from srdp.setup.garage import GarageTarget
+
 logger = logging.getLogger(__name__)
 
 CONFIG_PATH = Path("/etc/srdp/srdp.toml")
@@ -58,6 +60,8 @@ class SetupSettings(BaseSettings):
         toml_file=CONFIG_PATH,
         toml_table_header=("setup",),
         extra="forbid",
+        # The input holds role passwords and Garage's keys.
+        hide_input_in_errors=True,
     )
 
     pg_host: str = Field(default="postgres")
@@ -67,6 +71,8 @@ class SetupSettings(BaseSettings):
     databases: list[DatabaseTarget]
     # Keyed by role name, e.g. SETUP_PASSWORDS__MARQUEZ -> passwords["marquez"].
     passwords: dict[str, SecretStr] = Field(default_factory=dict)
+    # The optional Garage step, [setup.garage] plus SETUP_GARAGE__* secrets.
+    garage: GarageTarget = Field(default_factory=GarageTarget)
 
     @classmethod
     def settings_customise_sources(

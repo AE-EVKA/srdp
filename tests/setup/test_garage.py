@@ -7,12 +7,12 @@ from typing import Any
 import pytest
 from pydantic import SecretStr
 
-from srdp.setup.garage import GarageAdmin, GarageSetupSettings, setup_garage
+from srdp.setup.garage import GarageAdmin, GarageTarget, setup_garage
 
 WRITER_KEY_ID = "GK" + "a" * 24
-WRITER_SECRET = "w" * 64
+WRITER_SECRET = "c" * 64
 READER_KEY_ID = "GK" + "b" * 24
-READER_SECRET = "r" * 64
+READER_SECRET = "d" * 64
 BUCKET = "ducklake"
 
 
@@ -89,9 +89,11 @@ class FakeGarage(GarageAdmin):
         return self.grants[(self.buckets[BUCKET], key_id)]
 
 
-def settings() -> GarageSetupSettings:
-    """Garage settings with the test bucket and keys."""
-    return GarageSetupSettings(
+def settings() -> GarageTarget:
+    """An enabled Garage step with the test bucket and keys."""
+    return GarageTarget(
+        enabled=True,
+        admin_url="http://garage.test:3903",
         admin_token=SecretStr("admin-token"),
         bucket=BUCKET,
         writer_key_id=WRITER_KEY_ID,
@@ -184,12 +186,12 @@ def test_reader_that_could_write_loses_write_and_owner() -> None:
 
 def test_existing_key_with_another_secret_stops_the_step() -> None:
     garage = FakeGarage()
-    garage.keys[WRITER_KEY_ID] = "x" * 64
+    garage.keys[WRITER_KEY_ID] = "e" * 64
 
     with pytest.raises(RuntimeError, match="different secret"):
         setup_garage(settings(), admin=garage)
 
-    assert garage.keys[WRITER_KEY_ID] == "x" * 64
+    assert garage.keys[WRITER_KEY_ID] == "e" * 64
 
 
 class FailingStatus(FakeGarage):

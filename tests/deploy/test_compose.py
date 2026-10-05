@@ -79,3 +79,31 @@ def test_local_storage_stays_the_default_without_garage(tmp_path: Path) -> None:
     assert "garage" not in services
     for name in ["dagster-code", *READERS]:
         assert services[name]["environment"]["DUCKLAKE_STORAGE_BACKEND"] == "local", name
+
+
+GARAGE_ENV = {
+    "DUCKLAKE_STORAGE_BACKEND": "s3",
+    "DUCKLAKE_S3_BUCKET": "lake",
+    "DUCKLAKE_S3_WRITER_KEY_ID": WRITER_KEY_ID,
+    "DUCKLAKE_S3_WRITER_SECRET": WRITER_SECRET,
+    "DUCKLAKE_S3_READER_KEY_ID": READER_KEY_ID,
+    "DUCKLAKE_S3_READER_SECRET": READER_SECRET,
+    "GARAGE_ADMIN_TOKEN": "admin-token",
+}
+
+
+def test_setup_garage_enabled_turns_on_the_garage_step_with_the_consumers_keys(tmp_path: Path) -> None:
+    env = render(tmp_path, {**GARAGE_ENV, "SETUP_GARAGE_ENABLED": "true"}, "s3")["srdp-setup"]["environment"]
+    assert env["SETUP_GARAGE__ENABLED"] == "true"
+    assert env["SETUP_GARAGE__BUCKET"] == "lake"
+    assert env["SETUP_GARAGE__ADMIN_TOKEN"] == GARAGE_ENV["GARAGE_ADMIN_TOKEN"]
+    assert env["SETUP_GARAGE__WRITER_KEY_ID"] == WRITER_KEY_ID
+    assert env["SETUP_GARAGE__WRITER_SECRET"] == WRITER_SECRET
+    assert env["SETUP_GARAGE__READER_KEY_ID"] == READER_KEY_ID
+    assert env["SETUP_GARAGE__READER_SECRET"] == READER_SECRET
+    assert not [name for name in env if name.startswith("GARAGE_")]
+
+
+def test_admin_token_alone_leaves_the_garage_step_off(tmp_path: Path) -> None:
+    env = render(tmp_path, GARAGE_ENV, "s3")["srdp-setup"]["environment"]
+    assert env["SETUP_GARAGE__ENABLED"] == "false"

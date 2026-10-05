@@ -193,3 +193,11 @@ annotations:
   checksum/local-secrets: {{ include (print .Template.BasePath "/local-secrets.yaml") . | sha256sum }}
 {{- end -}}
 {{- end -}}
+
+{{/*
+Admin API of the bundled Garage, through the garage Service in garage.yaml.
+Keep the port in step with that Service's admin port, a test checks.
+*/}}
+{{- define "srdp.garageAdminUrl" -}}
+http://garage:3903
+{{- end -}}

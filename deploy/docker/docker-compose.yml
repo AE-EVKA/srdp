@@ -71,17 +71,18 @@ services:
       SETUP_PASSWORDS__ZITADEL: "${ZITADEL_DATABASE_POSTGRES_USER_PASSWORD}"
       SETUP_PASSWORDS__DAGSTER: "${DAGSTER_PG_PASSWORD}"
       SETUP_PASSWORDS__MARQUEZ: "${MARQUEZ_DB_PASSWORD}"
-      # The optional Garage step (src/srdp/setup/garage.py) runs only when
-      # GARAGE_ADMIN_TOKEN is set, i.e. with COMPOSE_PROFILES=s3. It creates the
-      # bucket and imports the writer and reader key the DuckLake services get,
-      # before any of them starts (they all wait for this service).
-      GARAGE_ADMIN_URL: http://garage:3903
-      GARAGE_ADMIN_TOKEN: "${GARAGE_ADMIN_TOKEN:-}"
-      GARAGE_BUCKET: "${DUCKLAKE_S3_BUCKET:-ducklake}"
-      GARAGE_WRITER_KEY_ID: "${DUCKLAKE_S3_WRITER_KEY_ID:-}"
-      GARAGE_WRITER_SECRET: "${DUCKLAKE_S3_WRITER_SECRET:-}"
-      GARAGE_READER_KEY_ID: "${DUCKLAKE_S3_READER_KEY_ID:-}"
-      GARAGE_READER_SECRET: "${DUCKLAKE_S3_READER_SECRET:-}"
+      # The optional Garage step ([setup.garage] in srdp.toml,
+      # src/srdp/setup/garage.py) runs only with SETUP_GARAGE_ENABLED=true,
+      # set in .env next to COMPOSE_PROFILES=s3. It creates the bucket and
+      # imports the writer and reader key the DuckLake services get, before any
+      # of them starts (they all wait for this service).
+      SETUP_GARAGE__ENABLED: "${SETUP_GARAGE_ENABLED:-false}"
+      SETUP_GARAGE__BUCKET: "${DUCKLAKE_S3_BUCKET:-ducklake}"
+      SETUP_GARAGE__ADMIN_TOKEN: "${GARAGE_ADMIN_TOKEN:-}"
+      SETUP_GARAGE__WRITER_KEY_ID: "${DUCKLAKE_S3_WRITER_KEY_ID:-}"
+      SETUP_GARAGE__WRITER_SECRET: "${DUCKLAKE_S3_WRITER_SECRET:-}"
+      SETUP_GARAGE__READER_KEY_ID: "${DUCKLAKE_S3_READER_KEY_ID:-}"
+      SETUP_GARAGE__READER_SECRET: "${DUCKLAKE_S3_READER_SECRET:-}"
     volumes:
       - "../../srdp.toml:/etc/srdp/srdp.toml:ro"
     networks:

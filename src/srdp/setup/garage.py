@@ -15,59 +15,87 @@ the keys the deployment hands out. Garage wants an id of ``GK`` plus 24 hex
 characters and a secret of 64 hex characters.
 
 This is a step of the setup service (``python -m srdp.setup``), after the
-database bootstrap. It only runs when ``GARAGE_ADMIN_TOKEN`` is set: the chart
-sets it with ``garage.enabled``, Compose when ``.env`` fills it in for the
-``s3`` profile. It talks to Garage's admin API v2 with the standard library
-only, because the Garage image has no shell.
+database bootstrap. It only runs when ``[setup.garage]`` has ``enabled = true``
+(see ``GarageTarget``): the chart sets it from ``garage.enabled``, Compose from
+``SETUP_GARAGE_ENABLED`` in ``.env``. It talks to Garage's admin API v2 with
+the standard library only, because the Garage image has no shell.
 """
 
 import json
 import logging
+import re
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from typing import Any
 
-from pydantic import Field, SecretStr
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import BaseModel, ConfigDict, SecretStr, model_validator
 
 logger = logging.getLogger(__name__)
 
 _NOT_FOUND = 404
+# Garage's own formats for an imported key.
+_KEY_ID = re.compile(r"GK[0-9a-f]{24}")
+_SECRET = re.compile(r"[0-9a-f]{64}")
 
 
-class _GarageSwitch(BaseSettings):
-    """Only the admin token, to decide whether the Garage step runs at all."""
+class GarageTarget(BaseModel):
+    """The ``[setup.garage]`` table of ``srdp.toml``, plus Garage's secrets from the environment.
 
-    model_config = SettingsConfigDict(env_prefix="GARAGE_", extra="ignore", hide_input_in_errors=True)
-
-    admin_token: SecretStr = SecretStr("")
-
-
-def garage_requested() -> bool:
-    """Return whether the Garage step should run, i.e. whether ``GARAGE_ADMIN_TOKEN`` is set.
-
-    Returns:
-        True when a non-empty admin token is configured.
+    ``enabled``, ``admin_url`` and ``bucket`` come from the table. The admin
+    token and both keys come from ``SETUP_GARAGE__<FIELD>`` env vars, e.g.
+    ``SETUP_GARAGE__WRITER_KEY_ID``. A disabled step ignores everything else,
+    so another S3 server's keys, or the empty values Compose passes without
+    the ``s3`` profile, never fail validation.
     """
-    return bool(_GarageSwitch().admin_token.get_secret_value().strip())
 
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
 
-class GarageSetupSettings(BaseSettings):
-    """Garage admin connection, the DuckLake bucket, and the two keys to provision."""
-
-    model_config = SettingsConfigDict(env_prefix="GARAGE_", extra="ignore", hide_input_in_errors=True)
-
-    admin_url: str = "http://garage:3903"
-    admin_token: SecretStr = Field(min_length=1)
-    bucket: str = Field(min_length=1)
-    writer_key_id: str = Field(pattern=r"^GK[0-9a-f]{24}$")
-    writer_secret: SecretStr = Field(min_length=64, max_length=64)
-    reader_key_id: str = Field(pattern=r"^GK[0-9a-f]{24}$")
-    reader_secret: SecretStr = Field(min_length=64, max_length=64)
+    enabled: bool = False
+    admin_url: str = ""
+    bucket: str = ""
+    admin_token: SecretStr = SecretStr("")
+    writer_key_id: str = ""
+    writer_secret: SecretStr = SecretStr("")
+    reader_key_id: str = ""
+    reader_secret: SecretStr = SecretStr("")
     # A single-node layout only needs some capacity; Garage uses it as a weight.
     capacity_bytes: int = 1_000_000_000
+
+    @model_validator(mode="after")
+    def _check_enabled(self) -> "GarageTarget":
+        if not self.enabled:
+            return self
+        # Name the env var or table key, never the value: these are secrets.
+        problems = [f"Set {name}." for name, value in self._required() if not value]
+        for name, key_id in (
+            ("SETUP_GARAGE__WRITER_KEY_ID", self.writer_key_id),
+            ("SETUP_GARAGE__READER_KEY_ID", self.reader_key_id),
+        ):
+            if key_id and not _KEY_ID.fullmatch(key_id):
+                problems.append(f"{name} must be GK followed by 24 hex characters.")
+        for name, secret in (
+            ("SETUP_GARAGE__WRITER_SECRET", self.writer_secret),
+            ("SETUP_GARAGE__READER_SECRET", self.reader_secret),
+        ):
+            if secret.get_secret_value() and not _SECRET.fullmatch(secret.get_secret_value()):
+                problems.append(f"{name} must be 64 hex characters.")
+        if problems:
+            msg = "Garage step enabled, but: " + " ".join(problems)
+            raise ValueError(msg)
+        return self
+
+    def _required(self) -> list[tuple[str, str]]:
+        return [
+            ("admin_url in [setup.garage]", self.admin_url.strip()),
+            ("bucket in [setup.garage]", self.bucket.strip()),
+            ("SETUP_GARAGE__ADMIN_TOKEN", self.admin_token.get_secret_value().strip()),
+            ("SETUP_GARAGE__WRITER_KEY_ID", self.writer_key_id),
+            ("SETUP_GARAGE__WRITER_SECRET", self.writer_secret.get_secret_value()),
+            ("SETUP_GARAGE__READER_KEY_ID", self.reader_key_id),
+            ("SETUP_GARAGE__READER_SECRET", self.reader_secret.get_secret_value()),
+        ]
 
 
 class GarageAdmin:
@@ -188,26 +216,24 @@ def _grant(admin: GarageAdmin, bucket_id: str, key_id: str, *, write: bool) -> N
     )
 
 
-def setup_garage(settings: GarageSetupSettings | None = None, admin: GarageAdmin | None = None) -> None:
+def setup_garage(target: GarageTarget, admin: GarageAdmin | None = None) -> None:
     """Make Garage ready for DuckLake: layout, bucket, and the writer and reader key.
 
     Args:
-        settings: Loaded from ``GARAGE_*`` environment variables if not provided.
-        admin: Admin API client; built from ``settings`` if not provided.
+        target: The validated, enabled ``[setup.garage]`` config.
+        admin: Admin API client; built from ``target`` if not provided.
     """
-    if settings is None:
-        settings = GarageSetupSettings()  # ty: ignore[missing-argument]
     if admin is None:
-        admin = GarageAdmin(settings.admin_url, settings.admin_token)
-    _ensure_layout(admin, _wait_for_status(admin), settings.capacity_bytes)
-    bucket_id = _ensure_bucket(admin, settings.bucket)
-    _ensure_key(admin, "ducklake-writer", settings.writer_key_id, settings.writer_secret)
-    _ensure_key(admin, "ducklake-reader", settings.reader_key_id, settings.reader_secret)
-    _grant(admin, bucket_id, settings.writer_key_id, write=True)
-    _grant(admin, bucket_id, settings.reader_key_id, write=False)
+        admin = GarageAdmin(target.admin_url, target.admin_token)
+    _ensure_layout(admin, _wait_for_status(admin), target.capacity_bytes)
+    bucket_id = _ensure_bucket(admin, target.bucket)
+    _ensure_key(admin, "ducklake-writer", target.writer_key_id, target.writer_secret)
+    _ensure_key(admin, "ducklake-reader", target.reader_key_id, target.reader_secret)
+    _grant(admin, bucket_id, target.writer_key_id, write=True)
+    _grant(admin, bucket_id, target.reader_key_id, write=False)
     logger.info(
         "Garage ready: bucket '%s', writer %s, reader %s.",
-        settings.bucket,
-        settings.writer_key_id,
-        settings.reader_key_id,
+        target.bucket,
+        target.writer_key_id,
+        target.reader_key_id,
     )

@@ -1,7 +1,9 @@
 """CLI entry point: ``python -m srdp.setup`` runs the setup steps and exits.
 
 First the database bootstrap, then the optional Garage step when
-``GARAGE_ADMIN_TOKEN`` is set (see ``srdp.setup.garage``).
+``[setup.garage]`` has ``enabled = true`` (see ``srdp.setup.garage``). The
+whole config is validated first, so a bad Garage config stops setup before
+it changes any database.
 """
 
 import logging
@@ -9,22 +11,17 @@ import sys
 
 from pydantic import ValidationError
 
-from srdp.setup.bootstrap import bootstrap_databases
-from srdp.setup.garage import garage_requested, setup_garage
+from srdp.setup.bootstrap import SetupSettings, bootstrap_databases
+from srdp.setup.garage import setup_garage
 
 logger = logging.getLogger(__name__)
 
 
 def main() -> None:
-    """Run the database bootstrap, then the Garage step if it is configured."""
+    """Validate the setup config, then run the database bootstrap and the Garage step if enabled."""
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     try:
-        bootstrap_databases()
-        logger.info("Database bootstrap complete.")
-        if garage_requested():
-            setup_garage()
-        else:
-            logger.info("Skipping the Garage step, GARAGE_ADMIN_TOKEN is not set.")
+        settings = SetupSettings()  # ty: ignore[missing-argument]
     except ValidationError as exc:
         # Pydantic's default message echoes the raw input, which holds the
         # role passwords, so report only the location and message of each error.
@@ -32,6 +29,13 @@ def main() -> None:
             location = ".".join(str(part) for part in error["loc"]) or "settings"
             logger.error("Invalid setup config (%s): %s", location, error["msg"])  # noqa: TRY400 -- a traceback would print the passwords
         sys.exit(1)
+
+    bootstrap_databases(settings)
+    logger.info("Database bootstrap complete.")
+    if settings.garage.enabled:
+        setup_garage(settings.garage)
+    else:
+        logger.info("Skipping the Garage step, [setup.garage] is not enabled.")
     logger.info("Setup complete.")
 
 
