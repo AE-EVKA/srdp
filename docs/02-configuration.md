@@ -98,7 +98,8 @@ just kind-load-images
 
 ### 5) Fill in secrets and local values
 
-`deploy/kubernetes/srdp-chart/values-local.yaml` holds throwaway development values, so the local cluster runs without extra setup.
+The `localSecrets` block in `deploy/kubernetes/srdp-chart/values-local.yaml` holds throwaway development values, so the local cluster runs without extra setup.
+The chart turns it into the Secrets every service reads (`templates/local-secrets.yaml`), and `values.yaml` itself holds no credentials.
 Never reuse those values outside your own machine, and keep real secrets out of tracked files (#61).
 Keep `custom-ingress-cert` (created above), or point to another TLS secret if you prefer.
 
@@ -110,7 +111,7 @@ just local-deploy
 
 This builds and loads the images (step 4), installs the chart, then reads back Traefik's actual (dynamically-assigned) ClusterIP and feeds it into `oauth2-proxy`'s pod-level host alias in a second pass, since that IP can't be known ahead of the first install. Re-run the same command to pick up updated values.
 
-The chart deploys the full stack: Traefik, PostgreSQL (in-cluster via Bitnami Helm chart), Zitadel, OAuth2-Proxy, Dagster (webserver + daemon + user code), Marimo, the API, DuckDB UI, Marquez, and the hub landing page.
+The chart deploys the full stack: Traefik, PostgreSQL (in-cluster via Bitnami Helm chart), Zitadel, OAuth2-Proxy, Dagster (webserver + daemon + user code), Marimo, Streamlit, the API, DuckDB UI, Marquez, and the hub landing page.
 Quarto is disabled by default (`quarto.enabled: false` in `values.yaml`), flip it back on when it's needed again.
 PostgreSQL hosts the `zitadel`, `dagster`, `marquez`, and `ducklake` databases.
 The Bitnami subchart's `auth.*` fields create `zitadel`, and the `srdp-setup` Job creates the rest from the `setup.databases` list in `values.yaml` on every install and upgrade.
@@ -126,7 +127,9 @@ OAuth2-Proxy needs an OIDC client registered in Zitadel. Zitadel creates its fir
 Open `https://auth.srdp.localhost` (Docker Compose) or `https://auth.srdp.localhost:18443` (the local `kind` cluster, see step 2 of Option B) and sign in as the first-instance admin. Zitadel derives the default admin login name from the configured `ExternalDomain`, so for the local stack it is:
 
 - Login name: `zitadel-admin@zitadel.auth.srdp.localhost`
-- Password: for the Kubernetes chart, the development default in `values.yaml` under `zitadel.zitadel.configmapConfig.FirstInstance.Org.Human.Password`. The Docker Compose stack requires `ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD` to be set in `deploy/docker/.env` (see `.env.example`), Zitadel's own complexity rule applies: uppercase, lowercase, a digit, and a symbol.
+- Password: for the Kubernetes chart, the value of `localSecrets.zitadel.adminPassword` in `values-local.yaml`.
+  The Docker Compose stack requires `ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD` to be set in `deploy/docker/.env` (see `.env.example`).
+  Zitadel's own complexity rule applies, so the password needs an uppercase letter, a lowercase letter, a digit, and a symbol.
 
 If the login name differs, check it under **Users** in the Zitadel console.
 
@@ -143,6 +146,6 @@ Zitadel then shows a **Client ID** and **Client Secret**.
 ### 3) Apply the credentials
 
 - **Docker Compose**: set `OIDC_CLIENT_ID` and `OIDC_CLIENT_SECRET` in `deploy/docker/.env`, then run `just docker-up` to recreate OAuth2-Proxy with the new values.
-- **Kubernetes**: set the `oauth2-proxy` client ID/secret in `values-local.yaml`, then run `just local-deploy`.
+- **Kubernetes**: set `localSecrets.oauth2Proxy.clientID` and `localSecrets.oauth2Proxy.clientSecret` in `values-local.yaml`, then run `just local-deploy`.
 
 **Congratulations! The local environment should now be up and running.** Proceed to the next section, **Usage & Verification**, to confirm that everything is working correctly.

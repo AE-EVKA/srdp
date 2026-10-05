@@ -38,9 +38,12 @@ Placeholders use the `CHANGE_ME_*` prefix convention.
 
 ### Container images
 
+Registry: `[deploy] registry` in `srdp.toml`.
+The Justfile passes it to builds and to the chart, so never hardcode it elsewhere.
+
 The images and their Dockerfiles are listed in the `kind-load-images` recipe in the `Justfile`.
 Images that are built from the repo root (the Python ones copy `pyproject.toml`, `uv.lock`, `src/` and `projects/`) need the repo root as build context.
-Publishing moves from `just build-and-push` (Scaleway registry) to CI publishing to ghcr.io in #82.
+`just build-and-push` pushes to that registry, and CI publishes the platform images to ghcr.io (`.github/workflows/images.yml`).
 
 ### PostgreSQL
 
@@ -48,6 +51,12 @@ One Postgres instance serves the `zitadel`, `dagster`, `marquez` and `ducklake` 
 The `srdp-setup` service (Compose) or Job (Kubernetes) creates every database and role from `srdp.toml` `[setup]` or `values.yaml` `setup.databases`, and resets each role's password to the configured value on every deploy.
 Never delete the Postgres volume or PVC to fix a password mismatch, because that destroys all data.
 Rerun the deploy instead, as `docs/06-troubleshooting.md` describes.
+
+No password lives in the chart's values files.
+Every consumer reads a Secret with a fixed name: `srdp-postgres`, `srdp-zitadel`, `srdp-oauth2-proxy`, `srdp-dagster-postgresql` and `srdp-marquez` (keys listed in `values.yaml`).
+In kind, `templates/local-secrets.yaml` creates them from `localSecrets` in `values-local.yaml`.
+Elsewhere, External Secrets creates them.
+The Zitadel master key in `srdp-zitadel` must be exactly 32 characters.
 
 ### Known gotchas
 
