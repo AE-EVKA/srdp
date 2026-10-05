@@ -11,7 +11,7 @@ Both deployment targets (Docker Compose and Helm) run the same logical services.
 
 | Container | Role | Image | Notes |
 |:---|:---|:---|:---|
-| `srdp-postgres` | Shared platform database | `postgres:17-alpine` | Hosts databases for Zitadel and Dagster |
+| `srdp-postgres` | Shared platform database | `postgres:17-alpine` | Hosts databases for Zitadel, Dagster, Marquez and DuckLake |
 | `srdp-traefik` | Reverse proxy, TLS termination | `traefik:v3.5.3` | |
 | `srdp-zitadel-init` | Database schema bootstrap | `ghcr.io/zitadel/zitadel:v4.2.2` | Runs once then exits |
 | `srdp-zitadel` | Identity provider (OIDC) | `ghcr.io/zitadel/zitadel:v4.2.2` | API, console, OIDC endpoints |

@@ -29,7 +29,7 @@ Chosen option: "Single package with base images", because it minimises the numbe
 
 The platform is composed of four layers:
 
-Core library (`src/srdp/`): the Python package clients install. Contains IO managers, resources, base asset patterns, and the FastAPI API server. This is what `uv add srdp` provides.
+Core library (`src/srdp/`): the Python package clients install. Contains IO managers, resources, base asset patterns, and the FastAPI API server. This is what `uv add srdp` provides, with the DuckLake IO manager and the API server behind the `ducklake` and `api` extras.
 
 Core infrastructure services (containers, always deployed): PostgreSQL, Traefik, Dagster (daemon, code server, and the internal webserver that serves GraphQL), Zitadel, and oauth2-proxy. These form the platform runtime and are deployed via Docker Compose or Helm. They are not Python packages. The Dagster webserver runs as core because the FastAPI API depends on its GraphQL endpoint internally (see [ADR-0002](./0002-api-and-access-strategy.md)); exposing the Dagster UI route externally through Traefik is the optional part. Lineage browsing uses Dagster's built-in asset catalog by default, which needs no additional service (see [ADR-0003](./0003-data-catalog-lineage-and-observability.md)).
 
@@ -38,9 +38,11 @@ Optional services (containers, added as needed): the externally-exposed Dagster 
 Optional extras (Python dependencies, environment-specific): cloud storage backends and deployment-target-specific dependencies. These are genuine optional extras because the platform functions without them on a default local deployment.
 
 ```
-uv add srdp                # core library (Dagster, Polars, DuckDB, FastAPI)
+uv add srdp                # core library (Dagster, Polars)
+uv add srdp[ducklake]      # + DuckLake IO manager (DuckDB, PostgreSQL driver)
+uv add srdp[api]           # + FastAPI server
 uv add srdp[azure]         # + Azure Blob Storage backend
-uv add srdp[k8s]           # + Kubernetes executor (dagster-k8s)
+uv add srdp[infra]         # + Kubernetes executor and Dagster services
 ```
 
 ### Platform deployment
