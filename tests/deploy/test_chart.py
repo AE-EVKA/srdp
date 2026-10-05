@@ -443,3 +443,208 @@ def test_setup_job_deadline_covers_the_database_and_garage_waits(local_s3: list[
     # A deadline kill fails `helm install`, so the Job must outlast both waits.
     deadline = find(local_s3, "Job", "srdp-setup")["spec"]["activeDeadlineSeconds"]
     assert deadline >= DATABASE_WAIT_SECONDS + GARAGE_WAIT_SECONDS
+
+
+STUB_CURL = """#!/bin/sh
+# Records its arguments and answers like curl -w '%{http_code}' on a 200.
+printf '%s\\n' "$@" > "$CURL_ARGS"
+cat > /dev/null
+printf 200
+"""
+
+
+def run_bucket_wait(tmp_path: Path, wait: Manifest, env: dict[str, str]) -> list[str] | None:
+    """Run a bucket wait container's script with a stub curl, and return curl's arguments."""
+    stub = tmp_path / "curl"
+    stub.write_text(STUB_CURL)
+    stub.chmod(0o755)
+    args_file = tmp_path / "curl-args"
+    # Fixed argv, no shell string of our own: the script under test is the rendered one.
+    result = subprocess.run(  # noqa: S603
+        wait["command"],
+        env={**env, "PATH": f"{tmp_path}:/usr/bin:/bin", "CURL_ARGS": str(args_file)},
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    return args_file.read_text().splitlines() if args_file.exists() else None
+
+
+S3_ENV = {
+    "DUCKLAKE_STORAGE_BACKEND": "s3",
+    "DUCKLAKE_S3_REGION": "nl-ams",
+    "DUCKLAKE_S3_KEY_ID": "key-id",
+    "DUCKLAKE_S3_SECRET": "key-secret",
+}
+
+
+@pytest.mark.parametrize(
+    ("storage", "url"),
+    [
+        (
+            {
+                "DUCKLAKE_S3_URL_STYLE": "path",
+                "DUCKLAKE_S3_ENDPOINT": "garage:3900",
+                "DUCKLAKE_S3_USE_SSL": "false",
+                "DUCKLAKE_S3_BUCKET": "ducklake",
+                "DUCKLAKE_S3_PREFIX": "kind",
+            },
+            "http://garage:3900/ducklake?list-type=2&max-keys=1&prefix=kind%2F",
+        ),
+        (
+            {
+                "DUCKLAKE_S3_URL_STYLE": "vhost",
+                "DUCKLAKE_S3_ENDPOINT": "s3.nl-ams.scw.cloud",
+                "DUCKLAKE_S3_USE_SSL": "true",
+                "DUCKLAKE_S3_BUCKET": "lake",
+                "DUCKLAKE_S3_PREFIX": "/dev/team/",
+            },
+            "https://lake.s3.nl-ams.scw.cloud/?list-type=2&max-keys=1&prefix=dev%2Fteam%2F",
+        ),
+        (
+            {
+                "DUCKLAKE_S3_URL_STYLE": "path",
+                "DUCKLAKE_S3_ENDPOINT": "s3.example.test",
+                "DUCKLAKE_S3_USE_SSL": "true",
+                "DUCKLAKE_S3_BUCKET": "lake",
+                "DUCKLAKE_S3_PREFIX": "",
+            },
+            "https://s3.example.test/lake?list-type=2&max-keys=1&prefix=",
+        ),
+    ],
+    ids=["path-style", "vhost-style", "no-prefix"],
+)
+def test_bucket_wait_lists_the_lake_prefix_the_way_duckdb_addresses_it(
+    tmp_path: Path, local_s3: list[Manifest], storage: dict[str, str], url: str
+) -> None:
+    # DuckDB lists s3://<bucket>/<prefix>/, so the wait asks for exactly that,
+    # in the configured URL style. A HEAD on the bucket needs more rights.
+    wait = bucket_wait(find(local_s3, "Deployment", "api")["spec"]["template"]["spec"])
+
+    args = run_bucket_wait(tmp_path, wait, {**S3_ENV, **storage})
+
+    assert args is not None
+    assert args[-1] == url
+    assert "-I" not in args
+    assert "--aws-sigv4" in args
+    assert args[args.index("--aws-sigv4") + 1] == "aws:amz:nl-ams:s3"
+    assert float(args[args.index("--connect-timeout") + 1]) > 0
+    assert float(args[args.index("--max-time") + 1]) > 0
+
+
+def test_bucket_wait_skips_s3_with_local_storage(tmp_path: Path, local_s3: list[Manifest]) -> None:
+    wait = bucket_wait(find(local_s3, "Deployment", "api")["spec"]["template"]["spec"])
+
+    assert run_bucket_wait(tmp_path, wait, {"DUCKLAKE_STORAGE_BACKEND": "local"}) is None
+
+
+def test_every_copy_of_the_bucket_wait_runs_the_same_script(local: list[Manifest], local_s3: list[Manifest]) -> None:
+    # Helm cannot share a template with the Dagster subchart's values, so
+    # values.yaml, values-local.yaml and values-prod.example.yaml each carry
+    # a copy of srdp.waitForDucklakeBucket.
+    helper = bucket_wait(find(local_s3, "Deployment", "api")["spec"]["template"]["spec"])
+    copies = {
+        values_file: bucket_wait(find(manifests, "Deployment", DUCKLAKE_WRITER)["spec"]["template"]["spec"])
+        for values_file, manifests in [
+            ("values.yaml", render("values.yaml")),
+            ("values-local.yaml", local),
+            ("values-prod.example.yaml", render("values.yaml", "values-prod.example.yaml")),
+        ]
+    }
+    for values_file, copy in copies.items():
+        assert copy["command"] == helper["command"], values_file
+        assert copy["image"] == helper["image"], values_file
+        assert copy["securityContext"] == helper["securityContext"], values_file
+
+
+def render_error(*values_files: str, set_values: tuple[str, ...] = ()) -> str:
+    """Render the chart, expect it to fail, and return Helm's error output."""
+    with pytest.raises(subprocess.CalledProcessError) as exc:
+        render(*values_files, set_values=set_values)
+    return exc.value.stderr
+
+
+@pytest.mark.parametrize(
+    ("setting", "value"),
+    [
+        ("prefix", "dev team"),
+        ("prefix", "dev?x=1"),
+        ("bucket", "Lake_1"),
+        ("bucket", "lake/other"),
+    ],
+)
+def test_s3_bucket_and_prefix_must_need_no_url_encoding(setting: str, value: str) -> None:
+    # The bucket wait puts both into its request URL as they are.
+    error = render_error(
+        "values.yaml",
+        "values-local.yaml",
+        "values-local-s3.yaml",
+        set_values=(f"ducklakeStorage.s3.{setting}={value}",),
+    )
+    assert f"ducklakeStorage.s3.{setting}" in error
+
+
+def run_pod_k8s_config(manifests: list[Manifest]) -> Manifest:
+    """Return the k8s config the Dagster code location hands to every run pod it launches."""
+    container = find(manifests, "Deployment", DUCKLAKE_WRITER)["spec"]["template"]["spec"]["containers"][0]
+    context = next(e["value"] for e in container["env"] if e["name"] == "DAGSTER_CLI_API_GRPC_CONTAINER_CONTEXT")
+    return yaml.safe_load(context)["k8s"]
+
+
+def claims(volumes: list[Manifest] | None) -> set[str]:
+    """Return the PersistentVolumeClaim names a list of pod volumes refers to (None renders as no volumes)."""
+    return {v["persistentVolumeClaim"]["claimName"] for v in volumes or [] if "persistentVolumeClaim" in v}
+
+
+def referenced_claims(manifests: list[Manifest]) -> set[str]:
+    """Return every claim a Deployment, StatefulSet, Job or Dagster run pod mounts."""
+    found = set()
+    for m in manifests:
+        if m["kind"] in {"Deployment", "StatefulSet", "Job"}:
+            found |= claims(m["spec"]["template"]["spec"].get("volumes"))
+    return found | claims(run_pod_k8s_config(manifests).get("volumes"))
+
+
+@pytest.fixture(scope="module")
+def prod_example() -> list[Manifest]:
+    """Render the chart with the production example values."""
+    return render("values.yaml", "values-prod.example.yaml")
+
+
+@pytest.mark.parametrize("name", DUCKLAKE_READERS)
+def test_s3_apps_mount_no_ducklake_volume(local_s3: list[Manifest], name: str) -> None:
+    spec = find(local_s3, "Deployment", name)["spec"]["template"]["spec"]
+    assert "ducklake-data" not in claims(spec.get("volumes"))
+    assert not [m for m in spec["containers"][0].get("volumeMounts", []) if m["name"] == "ducklake-data"]
+
+
+def test_prod_example_keeps_ducklake_on_s3_without_the_data_volume(prod_example: list[Manifest]) -> None:
+    # A ReadWriteOnce volume would pin every DuckLake pod to one node.
+    assert find(prod_example, "ConfigMap", "srdp-ducklake-storage")["data"]["DUCKLAKE_STORAGE_BACKEND"] == "s3"
+    assert not [
+        m for m in prod_example if m["kind"] == "PersistentVolumeClaim" and m["metadata"]["name"] == "ducklake-data"
+    ]
+    assert "ducklake-data" not in referenced_claims(prod_example)
+
+
+def test_local_storage_needs_the_ducklake_volume() -> None:
+    error = render_error("values.yaml", "values-local.yaml", set_values=("ducklakeData.enabled=false",))
+    assert "ducklakeData.enabled" in error
+
+
+@pytest.mark.parametrize(
+    "values_files",
+    [
+        ("values.yaml",),
+        ("values.yaml", "values-local.yaml"),
+        ("values.yaml", "values-local.yaml", "values-local-s3.yaml"),
+        ("values.yaml", "values-prod.example.yaml"),
+    ],
+    ids=["default", "local", "local-s3", "prod-example"],
+)
+def test_every_claim_a_pod_mounts_exists(values_files: tuple[str, ...]) -> None:
+    manifests = render(*values_files)
+    pvcs = {m["metadata"]["name"] for m in manifests if m["kind"] == "PersistentVolumeClaim"}
+    assert referenced_claims(manifests) <= pvcs

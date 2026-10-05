@@ -77,11 +77,22 @@ writer Secret; keep the two in step.
       if [ "$DUCKLAKE_STORAGE_BACKEND" != "s3" ]; then exit 0; fi
       scheme=https
       if [ "$DUCKLAKE_S3_USE_SSL" = "false" ]; then scheme=http; fi
-      url="$scheme://$DUCKLAKE_S3_ENDPOINT/$DUCKLAKE_S3_BUCKET"
+      # The list request DuckDB makes on s3://<bucket>/<prefix>/, in its URL style,
+      # so a key scoped to the prefix passes too. The chart allows only
+      # [A-Za-z0-9._/-] in the prefix, so / is the one character to encode.
+      prefix=$(printf '%s' "$DUCKLAKE_S3_PREFIX" | sed -e 's#^/*##' -e 's#/*$##')
+      if [ -n "$prefix" ]; then prefix="$(printf '%s' "$prefix" | sed 's#/#%2F#g')%2F"; fi
+      query="list-type=2&max-keys=1&prefix=$prefix"
+      if [ "$DUCKLAKE_S3_URL_STYLE" = "vhost" ]; then
+        url="$scheme://$DUCKLAKE_S3_BUCKET.$DUCKLAKE_S3_ENDPOINT/?$query"
+      else
+        url="$scheme://$DUCKLAKE_S3_ENDPOINT/$DUCKLAKE_S3_BUCKET?$query"
+      fi
       for i in $(seq 1 60); do
         # The key goes in through stdin, so it never shows in the process list.
         code=$(printf 'user = "%s:%s"\n' "$DUCKLAKE_S3_KEY_ID" "$DUCKLAKE_S3_SECRET" |
-          curl -s -o /dev/null -w '%{http_code}' -K - --aws-sigv4 "aws:amz:$DUCKLAKE_S3_REGION:s3" -I "$url")
+          curl -s -o /dev/null -w '%{http_code}' --connect-timeout 3 --max-time 10 \
+              -K - --aws-sigv4 "aws:amz:$DUCKLAKE_S3_REGION:s3" "$url")
         if [ "$code" = "200" ]; then exit 0; fi
         echo "waiting for bucket $DUCKLAKE_S3_BUCKET at $DUCKLAKE_S3_ENDPOINT, HTTP $code ($i/60)..."
         sleep 2
@@ -143,17 +154,26 @@ DUCKLAKE_STORAGE_BACKEND and the S3 settings, one source for every consumer.
 {{/*
 Read-only mount of the shared DuckLake data volume (templates/ducklake-data-pvc.yaml),
 same as the ducklake-data:/data/ducklake:ro mount of the Compose readers.
+Only with local storage: with S3 the apps read the bucket, and a
+ReadWriteOnce volume would pin them to the node that holds it. Each renders
+its whole key, or nothing.
 */}}
-{{- define "srdp.ducklakeVolumeMount" -}}
-- name: ducklake-data
-  mountPath: {{ .Values.ducklakeData.mountPath | quote }}
-  readOnly: true
+{{- define "srdp.ducklakeVolumeMounts" -}}
+{{- if eq .Values.ducklakeStorage.backend "local" -}}
+volumeMounts:
+  - name: ducklake-data
+    mountPath: {{ .Values.ducklakeData.mountPath | quote }}
+    readOnly: true
+{{- end -}}
 {{- end -}}
 
-{{- define "srdp.ducklakeVolume" -}}
-- name: ducklake-data
-  persistentVolumeClaim:
-    claimName: ducklake-data
+{{- define "srdp.ducklakeVolumes" -}}
+{{- if eq .Values.ducklakeStorage.backend "local" -}}
+volumes:
+  - name: ducklake-data
+    persistentVolumeClaim:
+      claimName: ducklake-data
+{{- end -}}
 {{- end -}}
 
 {{/*
