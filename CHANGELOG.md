@@ -37,6 +37,7 @@ All notable changes to SRDP are documented here. The format follows [Keep a Chan
   In kind, every pod that reads one of them restarts when `values-local.yaml` changes, through a `checksum/local-secrets` pod annotation.
 - Image `repository` values of the chart's own apps are bare names such as `marimo`, prefixed by `global.srdpRegistry`.
   Existing `values-prod.yaml` files that set a full repository path must shorten it.
+- The chart's `srdp-setup` Job may run for up to 15 minutes (`setup.activeDeadlineSeconds: 900`), long enough for the database wait and the Garage step on a cold install. Until now a slow start could hit the deadline and fail `helm install`.
 - Dagster queues runs and launches at most 3 at a time, of which at most one backfill (`workload_kind: backfill`), on both Compose and Kubernetes.
 - The base and fast-lane Kubernetes run profiles request 512Mi with a 1536Mi limit, since a full `srdp_etl_job` run peaks at about 1Gi.
 - `just prod-traefik-only` deploys only Traefik and the hub page, and `just prod-auth-only` adds only Zitadel, its database and OAuth2-Proxy.

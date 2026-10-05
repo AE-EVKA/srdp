@@ -28,6 +28,11 @@ CONFIG_PATH = Path("/etc/srdp/srdp.toml")
 # Per connection attempt, so an unreachable host fails fast and the retry loop,
 # not a hanging socket, decides how long setup waits.
 CONNECT_TIMEOUT_SECONDS = 5
+CONNECT_ATTEMPTS = 40
+CONNECT_RETRY_DELAY_SECONDS = 3.0
+# The longest setup waits for Postgres. The chart's setup.activeDeadlineSeconds
+# must cover it plus the Garage step's wait, a test checks.
+WORST_CASE_WAIT_SECONDS = CONNECT_ATTEMPTS * (CONNECT_TIMEOUT_SECONDS + CONNECT_RETRY_DELAY_SECONDS)
 
 
 # Lowercase, and within Postgres's 63-byte identifier limit, since a longer
@@ -155,7 +160,9 @@ def ensure_target(cur: psycopg2.extensions.cursor, target: DatabaseTarget, setti
 
 
 def _connect_with_retry(
-    settings: SetupSettings, max_attempts: int = 40, delay_seconds: float = 3.0
+    settings: SetupSettings,
+    max_attempts: int = CONNECT_ATTEMPTS,
+    delay_seconds: float = CONNECT_RETRY_DELAY_SECONDS,
 ) -> psycopg2.extensions.connection:
     """Connect to Postgres, retrying while it's still starting up.
 

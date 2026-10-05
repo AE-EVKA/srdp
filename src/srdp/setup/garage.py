@@ -35,6 +35,12 @@ from pydantic import BaseModel, ConfigDict, SecretStr, model_validator
 logger = logging.getLogger(__name__)
 
 _NOT_FOUND = 404
+REQUEST_TIMEOUT_SECONDS = 10
+STATUS_ATTEMPTS = 30
+STATUS_RETRY_DELAY_SECONDS = 2.0
+# The longest the step waits for Garage to come up. The chart's
+# setup.activeDeadlineSeconds must cover it plus the database wait, a test checks.
+WORST_CASE_WAIT_SECONDS = STATUS_ATTEMPTS * (REQUEST_TIMEOUT_SECONDS + STATUS_RETRY_DELAY_SECONDS)
 # Garage's own formats for an imported key.
 _KEY_ID = re.compile(r"GK[0-9a-f]{24}")
 _SECRET = re.compile(r"[0-9a-f]{64}")
@@ -135,7 +141,7 @@ class GarageAdmin:
             headers={"Authorization": f"Bearer {self._token.get_secret_value()}", "Content-Type": "application/json"},
         )
         try:
-            with urllib.request.urlopen(request, timeout=10) as response:  # noqa: S310 -- see above
+            with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:  # noqa: S310 -- see above
                 return json.loads(response.read() or b"null")
         except urllib.error.HTTPError as exc:
             if exc.code == _NOT_FOUND:
@@ -145,7 +151,11 @@ class GarageAdmin:
             raise
 
 
-def _wait_for_status(admin: GarageAdmin, max_attempts: int = 30, delay_seconds: float = 2.0) -> dict[str, Any]:
+def _wait_for_status(
+    admin: GarageAdmin,
+    max_attempts: int = STATUS_ATTEMPTS,
+    delay_seconds: float = STATUS_RETRY_DELAY_SECONDS,
+) -> dict[str, Any]:
     """Return the cluster status, retrying while Garage is still starting."""
     for attempt in range(1, max_attempts + 1):
         try:

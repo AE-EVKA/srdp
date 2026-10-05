@@ -14,7 +14,7 @@ metadata:
     helm.sh/hook-delete-policy: before-hook-creation
 spec:
   backoffLimit: 2
-  activeDeadlineSeconds: 240
+  activeDeadlineSeconds: {{ .Values.setup.activeDeadlineSeconds }}
   template:
     spec:
       restartPolicy: OnFailure

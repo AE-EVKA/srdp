@@ -11,6 +11,9 @@ from typing import Any
 import pytest
 import yaml
 
+from srdp.setup.bootstrap import WORST_CASE_WAIT_SECONDS as DATABASE_WAIT_SECONDS
+from srdp.setup.garage import WORST_CASE_WAIT_SECONDS as GARAGE_WAIT_SECONDS
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CHART_DIR = REPO_ROOT / "deploy" / "kubernetes" / "srdp-chart"
 
@@ -434,3 +437,9 @@ def test_s3_every_wait_container_runs_hardened(local_s3: list[Manifest]) -> None
         assert context.get("readOnlyRootFilesystem") is True, f"{name}/{c['name']}"
         assert context.get("allowPrivilegeEscalation") is False, f"{name}/{c['name']}"
         assert context.get("capabilities") == {"drop": ["ALL"]}, f"{name}/{c['name']}"
+
+
+def test_setup_job_deadline_covers_the_database_and_garage_waits(local_s3: list[Manifest]) -> None:
+    # A deadline kill fails `helm install`, so the Job must outlast both waits.
+    deadline = find(local_s3, "Job", "srdp-setup")["spec"]["activeDeadlineSeconds"]
+    assert deadline >= DATABASE_WAIT_SECONDS + GARAGE_WAIT_SECONDS
