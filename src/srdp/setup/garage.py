@@ -188,15 +188,17 @@ def _grant(admin: GarageAdmin, bucket_id: str, key_id: str, *, write: bool) -> N
     )
 
 
-def setup_garage(settings: GarageSetupSettings | None = None) -> None:
+def setup_garage(settings: GarageSetupSettings | None = None, admin: GarageAdmin | None = None) -> None:
     """Make Garage ready for DuckLake: layout, bucket, and the writer and reader key.
 
     Args:
         settings: Loaded from ``GARAGE_*`` environment variables if not provided.
+        admin: Admin API client; built from ``settings`` if not provided.
     """
     if settings is None:
         settings = GarageSetupSettings()  # ty: ignore[missing-argument]
-    admin = GarageAdmin(settings.admin_url, settings.admin_token)
+    if admin is None:
+        admin = GarageAdmin(settings.admin_url, settings.admin_token)
     _ensure_layout(admin, _wait_for_status(admin), settings.capacity_bytes)
     bucket_id = _ensure_bucket(admin, settings.bucket)
     _ensure_key(admin, "ducklake-writer", settings.writer_key_id, settings.writer_secret)
