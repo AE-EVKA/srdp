@@ -31,8 +31,22 @@ jobs:
         run: |
           VERSION="${TAG_NAME#v}"
           HEADING=$(grep -m1 "^## \[$VERSION\]" CHANGELOG.md | sed 's/^## //')
+
+          # A pre-release is marked as one, and a stable release's notes start
+          # at the previous stable tag, so v0.4.0 covers the rc builds too.
+          PRERELEASE_FLAG=""
+          NOTES_ARGS=()
+          if [[ "$VERSION" == *-* ]]; then
+            PRERELEASE_FLAG="--prerelease"
+          else
+            PREVIOUS_STABLE=$(git tag --list 'v*' --sort=-v:refname | grep -v -e '-' -e "^$TAG_NAME$" | head -n 1)
+            if [ -n "$PREVIOUS_STABLE" ]; then
+              NOTES_ARGS=(-f previous_tag_name="$PREVIOUS_STABLE")
+            fi
+          fi
+
           gh api "repos/${{ github.repository }}/releases/generate-notes" \
-            -f tag_name="$TAG_NAME" -f target_commitish=main --jq .body > notes.md
+            -f tag_name="$TAG_NAME" -f target_commitish=main "${NOTES_ARGS[@]}" --jq .body > notes.md
 
           if [ -n "$HEADING" ]; then
             ANCHOR=$(echo "$HEADING" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9 -]//g' | tr ' ' '-')
@@ -48,4 +62,5 @@ jobs:
           gh release create "$TAG_NAME" \
             --title "$TAG_NAME" \
             --draft \
+            $PRERELEASE_FLAG \
             --notes-file combined-notes.md
