@@ -14,20 +14,32 @@ All notable changes to SRDP are documented here. The format follows [Keep a Chan
 - `MARQUEZ_DB_PASSWORD` in `deploy/docker/.env`.
   Existing Compose setups need to add it to `.env`.
 - Streamlit in the Helm chart, behind the login on `streamlit.<domain>`.
-- A shared `ducklake-data` volume in the chart, so the apps read the Parquet files that Dagster run pods write. It is only for local storage. With `ducklakeStorage.backend: s3` the apps no longer mount it, and `ducklakeData.enabled: false` drops it entirely, which `values-prod.example.yaml` does now that it keeps DuckLake on S3, so no pod is pinned to the node that holds the volume.
+- A shared `ducklake-data` volume in the chart, so the apps read the Parquet files that Dagster run pods write.
+  It is only for local storage.
+  With `ducklakeStorage.backend: s3` the apps no longer mount it, and `ducklakeData.enabled: false` drops it entirely.
+  `values-prod.example.yaml` now keeps DuckLake on S3 without the volume, so no pod is pinned to the node that holds it.
 - `global.srdpRegistry` and `global.imagePullSecrets` in the chart.
   `srdp.toml` holds the registry under `[deploy] registry`, and every `Justfile` deploy and build recipe reads it from there.
 - `S3StorageBackend` stores the DuckLake data files in S3-compatible object storage (Scaleway, Hetzner, MinIO) when `DUCKLAKE_STORAGE_BACKEND=s3` is set. Its settings live in their own `S3StorageSettings` (`DUCKLAKE_S3_*`), apart from the Postgres catalog settings. Endpoint, URL style and region are required, with no AWS defaults, and the DuckDB secret is scoped to the lake prefix. The default stays `local`, so nothing changes without the setting. Part of #56.
 - `srdp.io.dbt_plugin`, a dbt-duckdb plugin that attaches DuckLake with the same storage settings as Dagster, so a dbt profile no longer needs its own copy of them.
 - `S3StorageBackend.dlt_filesystem_config()` renders the same bucket, endpoint and key for a dlt filesystem destination.
 - DuckLake on S3 in Compose and the chart. `DUCKLAKE_STORAGE_BACKEND=s3` in `deploy/docker/.env`, or `ducklakeStorage.backend: s3` in the chart, moves the Parquet files to a bucket. Dagster and its run pods get the writer key, and marimo, streamlit, the api and duckdb-ui get a read-only key, so a SQL console cannot write to the lake. Part of #56.
-- Garage serves as the local S3 server for that. Compose starts it with the `s3` profile, and kind with `values-local-s3.yaml` (`just local-deploy -f srdp-chart/values-local-s3.yaml`). An optional Garage step in the `srdp-setup` service creates the bucket and the two keys. It is switched on in the `[setup.garage]` table of `srdp.toml`, by `SETUP_GARAGE_ENABLED=true` in Compose's `.env` and by `garage.enabled` in the chart, and it takes its secrets from `SETUP_GARAGE__*` env vars. The whole setup config is validated before any database changes. Every DuckLake pod in the chart waits until it can list the lake prefix with its own key, the same request DuckDB makes, in the configured URL style and with curl timeouts. The chart refuses a bucket or prefix that the request would have to URL-encode. MinIO stopped publishing its Docker images, so Garage takes its place.
+- Garage serves as the local S3 server for that.
+  Compose starts it with the `s3` profile, and kind with `values-local-s3.yaml` (`just local-deploy -f srdp-chart/values-local-s3.yaml`).
+  An optional Garage step in the `srdp-setup` service creates the bucket and the two keys.
+  The `[setup.garage]` table of `srdp.toml` switches it on, through `SETUP_GARAGE_ENABLED=true` in Compose's `.env` and `garage.enabled` in the chart, and the step takes its secrets from `SETUP_GARAGE__*` env vars.
+  The whole setup config is validated before any database changes.
+  Every DuckLake pod in the chart waits until it can list the lake prefix with its own key, which is the request DuckDB makes, in the configured URL style and with curl timeouts.
+  The chart refuses a bucket or prefix that this request would have to URL-encode.
+  MinIO stopped publishing its Docker images, so Garage takes its place.
 - The chart reads the storage choice from one `srdp-ducklake-storage` ConfigMap and the keys from the `srdp-ducklake-s3-writer` and `srdp-ducklake-s3-reader` Secrets, which External Secrets has to create once S3 is on.
 
 ### Security
 
 - A DuckLake settings error no longer prints the values it was given, so a misconfigured start cannot write the Postgres password or the S3 secret to the logs.
-- Garage runs hardened. In the chart it runs as a non-root user with a read-only root filesystem, no capabilities, RuntimeDefault seccomp and no service account token. In Compose it gets a read-only root filesystem, no capabilities and `no-new-privileges`.
+- Garage runs hardened.
+  In the chart it runs as a non-root user with a read-only root filesystem, no capabilities, RuntimeDefault seccomp and no service account token.
+  In Compose it gets a read-only root filesystem, no capabilities and `no-new-privileges`.
 
 ### Changed
 
@@ -38,8 +50,10 @@ All notable changes to SRDP are documented here. The format follows [Keep a Chan
   In kind, every pod that reads one of them restarts when `values-local.yaml` changes, through a `checksum/local-secrets` pod annotation.
 - Image `repository` values of the chart's own apps are bare names such as `marimo`, prefixed by `global.srdpRegistry`.
   Existing `values-prod.yaml` files that set a full repository path must shorten it.
-- The chart's `srdp-setup` Job may run for up to 15 minutes (`setup.activeDeadlineSeconds: 900`), long enough for the database wait and the Garage step on a cold install. Until now a slow start could hit the deadline and fail `helm install`.
-- Compose generates Garage's config inline, with `s3_region` taken from `DUCKLAKE_S3_REGION`, so changing the region no longer breaks request signing. `deploy/docker/garage.toml` is gone, and the Compose stack needs Docker Compose 2.23 or newer.
+- The chart's `srdp-setup` Job may run for up to 15 minutes (`setup.activeDeadlineSeconds: 900`), long enough for the database wait and the Garage step on a cold install.
+  Until now a slow start could hit the deadline and fail `helm install`.
+- Compose generates Garage's config inline, with `s3_region` taken from `DUCKLAKE_S3_REGION`, so changing the region no longer breaks request signing.
+  `deploy/docker/garage.toml` is gone, and the Compose stack needs Docker Compose 2.23 or newer.
 - Dagster queues runs and launches at most 3 at a time, of which at most one backfill (`workload_kind: backfill`), on both Compose and Kubernetes.
 - The base and fast-lane Kubernetes run profiles request 512Mi with a 1536Mi limit, since a full `srdp_etl_job` run peaks at about 1Gi.
 - `just prod-traefik-only` deploys only Traefik and the hub page, and `just prod-auth-only` adds only Zitadel, its database and OAuth2-Proxy.

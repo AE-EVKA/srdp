@@ -11,8 +11,8 @@ from typing import Any
 import pytest
 import yaml
 
-from srdp.setup.bootstrap import WORST_CASE_WAIT_SECONDS as DATABASE_WAIT_SECONDS
-from srdp.setup.garage import WORST_CASE_WAIT_SECONDS as GARAGE_WAIT_SECONDS
+from srdp.setup.bootstrap import DATABASE_WAIT_SECONDS
+from srdp.setup.garage import GARAGE_WAIT_SECONDS
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CHART_DIR = REPO_ROOT / "deploy" / "kubernetes" / "srdp-chart"
@@ -665,3 +665,19 @@ def test_garage_runs_hardened(local_s3: list[Manifest]) -> None:
         "readOnlyRootFilesystem": True,
         "capabilities": {"drop": ["ALL"]},
     }
+
+
+def test_vhost_url_style_from_the_chart_reaches_the_bucket_wait(tmp_path: Path) -> None:
+    manifests = render(
+        "values.yaml", "values-local.yaml", "values-local-s3.yaml", set_values=("ducklakeStorage.s3.urlStyle=vhost",)
+    )
+    # The pod gets the storage ConfigMap through envFrom, so run the wait with exactly that.
+    storage = find(manifests, "ConfigMap", "srdp-ducklake-storage")["data"]
+    wait = bucket_wait(find(manifests, "Deployment", "api")["spec"]["template"]["spec"])
+
+    args = run_bucket_wait(
+        tmp_path, wait, {**storage, "DUCKLAKE_S3_KEY_ID": "key-id", "DUCKLAKE_S3_SECRET": "key-secret"}
+    )
+
+    assert args is not None
+    assert args[-1] == "http://ducklake.garage:3900/?list-type=2&max-keys=1&prefix=kind%2F"

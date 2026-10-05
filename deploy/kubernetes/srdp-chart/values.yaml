@@ -519,8 +519,9 @@ setup:
     tag: "v1.0"
     pullPolicy: IfNotPresent
   # The whole Job, retries included. It must cover the database wait plus the
-  # Garage step's wait (WORST_CASE_WAIT_SECONDS in src/srdp/setup/), a test
-  # checks. A deadline kill fails `helm install`, so this matches the Zitadel Jobs.
+  # Garage step's wait (DATABASE_WAIT_SECONDS and GARAGE_WAIT_SECONDS in
+  # src/srdp/setup/), a test checks. A deadline kill fails `helm install`, so
+  # this matches the Zitadel Jobs.
   activeDeadlineSeconds: 900
   # Keep in step with srdp.toml [setup]. A new role needs its SETUP_PASSWORDS__<ROLE> on the Job.
   databases:

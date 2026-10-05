@@ -10,7 +10,9 @@ Before you begin, ensure you have the following software installed on your local
 ### Required tools (all deployment methods)
 
 - Git
-- Container runtime (Docker Engine + Docker Compose 2.23 or newer, which the Compose stack's inline Garage config needs). Any Docker-compatible setup works, this repo doesn't assume one, Colima and OrbStack are two that are known to work.
+- Container runtime (Docker Engine + Docker Compose 2.23 or newer, which the Compose stack's inline Garage config needs).
+  Any Docker-compatible setup works, and this repo doesn't assume one.
+  Colima and OrbStack are two that are known to work.
 - [`just`](https://github.com/casey/just), task runner for common commands
 - [`mkcert`](https://github.com/FiloSottaro/mkcert), local TLS certificates for `*.srdp.localhost`
 

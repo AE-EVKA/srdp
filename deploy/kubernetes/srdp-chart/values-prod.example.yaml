@@ -27,9 +27,9 @@ ducklakeStorage:
   s3:
     bucket: "srdp-lakehouse" # CHANGE THIS
     prefix: "prod" # CHANGE THIS, one prefix per environment
-    endpoint: "s3.nl-ams.scw.cloud"
+    endpoint: "s3.nl-ams.scw.cloud" # CHANGE THIS to your object storage endpoint
     urlStyle: vhost
-    region: "nl-ams"
+    region: "nl-ams" # CHANGE THIS to match the endpoint
     useSsl: true
 
 ducklakeData:

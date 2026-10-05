@@ -74,6 +74,7 @@ just prod-use-kubeconfig   # from repo root
   | `srdp-ducklake-s3-writer` | `DUCKLAKE_S3_KEY_ID`, `DUCKLAKE_S3_SECRET` (only with `ducklakeStorage.backend: s3`) |
   | `srdp-ducklake-s3-reader` | `DUCKLAKE_S3_KEY_ID`, `DUCKLAKE_S3_SECRET` (only with `ducklakeStorage.backend: s3`) |
 
+- `values-prod.example.yaml` keeps DuckLake on S3 with no `ducklake-data` volume, so a deploy from it needs both S3 Secrets.
 - With `ducklakeStorage.backend: s3`, Dagster and its run pods get the writer key and the four apps get the read-only key.
   Give the reader key read access to the lake prefix only, because a SQL console like duckdb-ui runs with the full authority of its key.
 

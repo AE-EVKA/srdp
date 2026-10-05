@@ -32,7 +32,7 @@ CONNECT_ATTEMPTS = 40
 CONNECT_RETRY_DELAY_SECONDS = 3.0
 # The longest setup waits for Postgres. The chart's setup.activeDeadlineSeconds
 # must cover it plus the Garage step's wait, a test checks.
-WORST_CASE_WAIT_SECONDS = CONNECT_ATTEMPTS * (CONNECT_TIMEOUT_SECONDS + CONNECT_RETRY_DELAY_SECONDS)
+DATABASE_WAIT_SECONDS = CONNECT_ATTEMPTS * (CONNECT_TIMEOUT_SECONDS + CONNECT_RETRY_DELAY_SECONDS)
 
 
 # Lowercase, and within Postgres's 63-byte identifier limit, since a longer

@@ -40,7 +40,7 @@ STATUS_ATTEMPTS = 30
 STATUS_RETRY_DELAY_SECONDS = 2.0
 # The longest the step waits for Garage to come up. The chart's
 # setup.activeDeadlineSeconds must cover it plus the database wait, a test checks.
-WORST_CASE_WAIT_SECONDS = STATUS_ATTEMPTS * (REQUEST_TIMEOUT_SECONDS + STATUS_RETRY_DELAY_SECONDS)
+GARAGE_WAIT_SECONDS = STATUS_ATTEMPTS * (REQUEST_TIMEOUT_SECONDS + STATUS_RETRY_DELAY_SECONDS)
 # Garage's own formats for an imported key.
 _KEY_ID = re.compile(r"GK[0-9a-f]{24}")
 _SECRET = re.compile(r"[0-9a-f]{64}")
