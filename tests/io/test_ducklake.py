@@ -7,6 +7,7 @@ from srdp.io.ducklake import (
     LocalStorageBackend,
     S3StorageBackend,
     S3StorageSettings,
+    _attach_with_retry,
     get_storage_backend,
 )
 
@@ -130,6 +131,67 @@ def test_dlt_gets_the_same_bucket_endpoint_and_key():
             "s3_url_style": "path",
         },
     }
+
+
+# Catalog-setup race
+
+
+class _ScriptedConnection:
+    """Stands in for a DuckDB connection whose ``ATTACH`` raises the scripted errors, then succeeds."""
+
+    def __init__(self, *errors: duckdb.Error) -> None:
+        self._errors = list(errors)
+        self.attaches = 0
+
+    def execute(self, query: str) -> None:
+        if query.startswith("ATTACH"):
+            self.attaches += 1
+            if self._errors:
+                raise self._errors.pop(0)
+
+
+def _init_race_error() -> duckdb.Error:
+    """The error a real race raises: Postgres refuses the second CREATE TABLE of the catalog's metadata."""
+    return duckdb.Error(
+        'Failed to initialize DuckLake: Failed to execute query "CREATE TABLE "public"."ducklake_metadata"(...)": '
+        "ERROR:  duplicate key value violates unique constraint ... already exists."
+    )
+
+
+@pytest.fixture
+def sleeps(monkeypatch) -> list[float]:
+    slept: list[float] = []
+    monkeypatch.setattr("srdp.io.ducklake.time.sleep", slept.append)
+    return slept
+
+
+def test_an_attach_that_loses_the_catalog_setup_race_is_retried(sleeps):
+    conn = _ScriptedConnection(_init_race_error())
+
+    _attach_with_retry(conn, "ATTACH 'ducklake:...' AS ducklake")
+
+    assert conn.attaches == 2
+    assert sleeps == [1]
+
+
+def test_the_attach_retry_gives_up_after_three_attempts(sleeps):
+    conn = _ScriptedConnection(_init_race_error(), _init_race_error(), _init_race_error())
+
+    with pytest.raises(duckdb.Error, match="already exists"):
+        _attach_with_retry(conn, "ATTACH 'ducklake:...' AS ducklake")
+
+    assert conn.attaches == 3
+    assert sleeps == [1, 1]
+
+
+def test_any_other_attach_error_fails_at_once(sleeps):
+    conn = _ScriptedConnection(duckdb.IOException("could not connect to server"))
+
+    with pytest.raises(duckdb.IOException):
+        _attach_with_retry(conn, "ATTACH 'ducklake:...' AS ducklake")
+
+    assert conn.attaches == 1
+    assert sleeps == []
 
 
 def test_a_settings_error_does_not_print_the_secret():

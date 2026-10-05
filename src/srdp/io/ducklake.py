@@ -343,29 +343,8 @@ def create_connection(
     if backend is None:
         backend = get_storage_backend(settings)
 
-    conn = _prepare_connection(duckdb.connect(), backend)
-    attach_query = _attach_sql(settings, backend)
-
-    max_retries = 3
-    for attempt in range(max_retries):
-        try:
-            conn.execute(attach_query)
-            break
-        except duckdb.Error as exc:
-            if "already exists" in str(exc) and attempt < max_retries - 1:
-                logger.warning("DuckLake catalog init race (attempt %d), retrying...", attempt + 1)
-                time.sleep(1)
-                conn.close()
-                conn = _prepare_connection(duckdb.connect(), backend)
-            else:
-                raise
-
-    _apply_tuning_options(conn, settings)
-    logger.info(
-        "Attached DuckLake catalog (db=%s, data_path=%s).",
-        settings.pg_db,
-        backend.get_base_path(),
-    )
+    conn = duckdb.connect()
+    _attach(conn, settings, backend)
     return conn
 
 
@@ -397,15 +376,23 @@ def attach_catalog(
 
     For callers that own the connection, such as the dbt-duckdb plugin in
     ``srdp.io.dbt_plugin``. Code that can open its own connection uses
-    ``setup_ducklake`` instead, which also retries a concurrent init race.
+    ``setup_ducklake`` instead. Both retry when another process is
+    initializing the same new catalog.
 
     Args:
         conn: An open DuckDB connection.
         settings: DuckLake settings with the catalog and storage details.
+
+    Raises:
+        duckdb.Error: If the catalog cannot be attached after all retries.
     """
-    backend = get_storage_backend(settings)
+    _attach(conn, settings, get_storage_backend(settings))
+
+
+def _attach(conn: duckdb.DuckDBPyConnection, settings: DuckLakeSettings, backend: StorageBackend) -> None:
+    """Configure ``backend`` on ``conn``, attach the catalog with the init-race retry, and apply the tuning options."""
     _prepare_connection(conn, backend)
-    conn.execute(_attach_sql(settings, backend))
+    _attach_with_retry(conn, _attach_sql(settings, backend))
     _apply_tuning_options(conn, settings)
     logger.info("Attached DuckLake catalog (db=%s, data_path=%s).", settings.pg_db, backend.get_base_path())
 
@@ -416,6 +403,29 @@ def _prepare_connection(conn: duckdb.DuckDBPyConnection, backend: StorageBackend
     conn.execute("LOAD ducklake")
     backend.configure_duckdb(conn)
     return conn
+
+
+def _attach_with_retry(conn: duckdb.DuckDBPyConnection, attach_query: str) -> None:
+    """Run ``attach_query`` on ``conn``, retrying when another process is initializing the same catalog.
+
+    The first ``ATTACH`` of a new catalog creates its metadata tables, so two
+    processes doing that at once make one of them fail with "already exists".
+    The catalog is usable by then, so the loser retries on the same connection.
+
+    Raises:
+        duckdb.Error: If the attach fails for another reason, or still races on the last attempt.
+    """
+    max_attempts = 3
+    for attempt in range(1, max_attempts + 1):
+        try:
+            conn.execute(attach_query)
+        except duckdb.Error as exc:
+            if "already exists" not in str(exc) or attempt == max_attempts:
+                raise
+            logger.warning("DuckLake catalog init race (attempt %d), retrying...", attempt)
+            time.sleep(1)
+        else:
+            return
 
 
 def _attach_sql(settings: DuckLakeSettings, backend: StorageBackend) -> str:
