@@ -648,3 +648,20 @@ def test_every_claim_a_pod_mounts_exists(values_files: tuple[str, ...]) -> None:
     manifests = render(*values_files)
     pvcs = {m["metadata"]["name"] for m in manifests if m["kind"] == "PersistentVolumeClaim"}
     assert referenced_claims(manifests) <= pvcs
+
+
+def test_garage_runs_hardened(local_s3: list[Manifest]) -> None:
+    spec = find(local_s3, "Deployment", "garage")["spec"]["template"]["spec"]
+    assert spec["automountServiceAccountToken"] is False
+    pod = spec["securityContext"]
+    assert pod["runAsNonRoot"] is True
+    assert pod["runAsUser"] != 0
+    assert pod["seccompProfile"] == {"type": "RuntimeDefault"}
+    # Garage writes only to its data volume, which fsGroup makes writable.
+    assert pod["fsGroup"] == pod["runAsGroup"]
+    [container] = spec["containers"]
+    assert container["securityContext"] == {
+        "allowPrivilegeEscalation": False,
+        "readOnlyRootFilesystem": True,
+        "capabilities": {"drop": ["ALL"]},
+    }

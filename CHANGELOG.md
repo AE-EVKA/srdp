@@ -27,6 +27,7 @@ All notable changes to SRDP are documented here. The format follows [Keep a Chan
 ### Security
 
 - A DuckLake settings error no longer prints the values it was given, so a misconfigured start cannot write the Postgres password or the S3 secret to the logs.
+- Garage runs hardened. In the chart it runs as a non-root user with a read-only root filesystem, no capabilities, RuntimeDefault seccomp and no service account token. In Compose it gets a read-only root filesystem, no capabilities and `no-new-privileges`.
 
 ### Changed
 
@@ -38,6 +39,7 @@ All notable changes to SRDP are documented here. The format follows [Keep a Chan
 - Image `repository` values of the chart's own apps are bare names such as `marimo`, prefixed by `global.srdpRegistry`.
   Existing `values-prod.yaml` files that set a full repository path must shorten it.
 - The chart's `srdp-setup` Job may run for up to 15 minutes (`setup.activeDeadlineSeconds: 900`), long enough for the database wait and the Garage step on a cold install. Until now a slow start could hit the deadline and fail `helm install`.
+- Compose generates Garage's config inline, with `s3_region` taken from `DUCKLAKE_S3_REGION`, so changing the region no longer breaks request signing. `deploy/docker/garage.toml` is gone, and the Compose stack needs Docker Compose 2.23 or newer.
 - Dagster queues runs and launches at most 3 at a time, of which at most one backfill (`workload_kind: backfill`), on both Compose and Kubernetes.
 - The base and fast-lane Kubernetes run profiles request 512Mi with a 1536Mi limit, since a full `srdp_etl_job` run peaks at about 1Gi.
 - `just prod-traefik-only` deploys only Traefik and the hub page, and `just prod-auth-only` adds only Zitadel, its database and OAuth2-Proxy.

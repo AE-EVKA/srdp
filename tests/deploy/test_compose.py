@@ -3,6 +3,7 @@
 import json
 import shutil
 import subprocess
+import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -20,8 +21,8 @@ READER_SECRET = "r" * 64
 READERS = ["marimo", "streamlit", "api", "duckdb-ui"]
 
 
-def render(tmp_path: Path, env: dict[str, str], *profiles: str) -> dict[str, Any]:
-    """Return the resolved Compose config for an .env with these variables."""
+def render_project(tmp_path: Path, env: dict[str, str], *profiles: str) -> dict[str, Any]:
+    """Return the whole resolved Compose project for an .env with these variables."""
     env_file = tmp_path / ".env"
     env_file.write_text("".join(f"{key}={value}\n" for key, value in env.items()))
     args = [DOCKER, "compose", "-f", str(COMPOSE_FILE), "--env-file", str(env_file)]
@@ -29,7 +30,12 @@ def render(tmp_path: Path, env: dict[str, str], *profiles: str) -> dict[str, Any
         args += ["--profile", profile]
     # Fixed argv, no shell: every argument comes from this test module.
     result = subprocess.run([*args, "config", "--format", "json"], capture_output=True, text=True, check=True)  # noqa: S603
-    return json.loads(result.stdout)["services"]
+    return json.loads(result.stdout)
+
+
+def render(tmp_path: Path, env: dict[str, str], *profiles: str) -> dict[str, Any]:
+    """Return the resolved Compose services for an .env with these variables."""
+    return render_project(tmp_path, env, *profiles)["services"]
 
 
 @pytest.fixture
@@ -107,3 +113,22 @@ def test_setup_garage_enabled_turns_on_the_garage_step_with_the_consumers_keys(t
 def test_admin_token_alone_leaves_the_garage_step_off(tmp_path: Path) -> None:
     env = render(tmp_path, GARAGE_ENV, "s3")["srdp-setup"]["environment"]
     assert env["SETUP_GARAGE__ENABLED"] == "false"
+
+
+def test_garage_runs_hardened(s3: dict[str, Any]) -> None:
+    garage = s3["garage"]
+    assert garage["read_only"] is True
+    assert garage["cap_drop"] == ["ALL"]
+    assert "no-new-privileges:true" in garage["security_opt"]
+
+
+def test_garage_signs_with_the_region_the_consumers_use(tmp_path: Path) -> None:
+    # DuckDB signs every request with DUCKLAKE_S3_REGION, and Garage refuses
+    # a signature for another region.
+    project = render_project(tmp_path, {**GARAGE_ENV, "DUCKLAKE_S3_REGION": "nl-ams"}, "s3")
+    [mount] = project["services"]["garage"]["configs"]
+    assert mount["target"] == "/etc/garage.toml"
+    garage_toml = tomllib.loads(project["configs"][mount["source"]]["content"])
+    assert garage_toml["s3_api"]["s3_region"] == "nl-ams"
+    assert project["services"]["dagster-code"]["environment"]["DUCKLAKE_S3_REGION"] == "nl-ams"
+    assert not [v for v in project["services"]["garage"].get("volumes", []) if v["target"] == "/etc/garage.toml"]

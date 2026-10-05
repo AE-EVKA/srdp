@@ -432,11 +432,20 @@ services:
     profiles: [s3]
     image: dxflrs/garage:v2.4.1
     container_name: srdp-garage
+    # Hardened like srdp-setup. Garage stays root here: the garage-data volume
+    # starts root-owned and the shell-less image cannot change that, and
+    # without capabilities root only writes to what it owns. The chart runs it
+    # as a non-root user through fsGroup.
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
     environment:
       GARAGE_RPC_SECRET: "${GARAGE_RPC_SECRET:-}"
       GARAGE_ADMIN_TOKEN: "${GARAGE_ADMIN_TOKEN:-}"
+    configs:
+      - source: garage-toml
+        target: /etc/garage.toml
     volumes:
-      - ./garage.toml:/etc/garage.toml:ro
       - garage-data:/var/lib/garage
     networks:
       - db
@@ -494,6 +503,28 @@ services:
     container_name: srdp-hub
     networks:
       - app
+
+
+# Garage's config, generated so that s3_region follows DUCKLAKE_S3_REGION:
+# DuckDB signs every request with that region, and Garage refuses a signature
+# for another one. Inline content needs Docker Compose 2.23 or newer. No
+# secrets here: GARAGE_RPC_SECRET and GARAGE_ADMIN_TOKEN come from .env, and
+# Garage reads both from the environment.
+configs:
+  garage-toml:
+    content: |
+      metadata_dir = "/var/lib/garage/meta"
+      data_dir = "/var/lib/garage/data"
+      db_engine = "sqlite"
+      replication_factor = 1
+      rpc_bind_addr = "[::]:3901"
+
+      [s3_api]
+      s3_region = "${DUCKLAKE_S3_REGION:-garage}"
+      api_bind_addr = "[::]:3900"
+
+      [admin]
+      api_bind_addr = "[::]:3903"
 
 networks:
   app:

@@ -56,10 +56,26 @@ spec:
       labels:
         app: garage
     spec:
+      automountServiceAccountToken: false
+      # The image is a static binary with no user of its own. Garage only
+      # writes under /var/lib/garage, the data volume, which fsGroup makes
+      # writable for this user.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: garage
           image: "{{ .Values.garage.image.repository }}:{{ .Values.garage.image.tag }}"
           imagePullPolicy: {{ .Values.garage.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
           ports:
             - name: s3
               containerPort: 3900
