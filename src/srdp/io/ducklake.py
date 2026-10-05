@@ -214,6 +214,13 @@ class S3StorageBackend(StorageBackend):
         Pass the result to ``dlt.destinations.filesystem(**config)`` so a dlt
         pipeline writes with the same bucket, endpoint and key as DuckDB.
 
+        dlt reads ``s3_url_style`` only for its DuckDB SQL client. The
+        filesystem destination writes through s3fs, which ignores it and uses
+        boto's own addressing. Scaleway, Hetzner and MinIO all accept that, so
+        the writes work today, but ``DUCKLAKE_S3_URL_STYLE`` doesn't reach
+        them. Passing it on to s3fs as well is left to the first PR that adds
+        dlt as a dependency, where it can be tested against a real dlt install.
+
         Returns:
             ``bucket_url`` plus ``credentials`` with dlt's ``AwsCredentials`` field names.
         """
