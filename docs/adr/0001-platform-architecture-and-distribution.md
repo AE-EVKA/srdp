@@ -38,11 +38,11 @@ Optional services (containers, added as needed): the externally-exposed Dagster 
 Optional extras (Python dependencies, environment-specific): cloud storage backends and deployment-target-specific dependencies. These are genuine optional extras because the platform functions without them on a default local deployment.
 
 ```
-uv add srdp                # core library (Dagster, Polars)
-uv add srdp[ducklake]      # + DuckLake IO manager (DuckDB, PostgreSQL driver)
-uv add srdp[api]           # + FastAPI server
-uv add srdp[azure]         # + Azure Blob Storage backend
-uv add srdp[infra]         # + Kubernetes executor and Dagster services
+uv add srdp                  # core library (Dagster, Polars)
+uv add "srdp[ducklake]"      # + DuckLake IO manager (DuckDB, PostgreSQL driver)
+uv add "srdp[api]"           # + FastAPI server
+uv add "srdp[azure]"         # + Azure Blob Storage backend
+uv add "srdp[infra]"         # + Kubernetes executor and Dagster services
 ```
 
 ### Platform deployment

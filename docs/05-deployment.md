@@ -156,7 +156,8 @@ From the first release that includes the images workflow, every release publishe
 Each image is scanned for critical vulnerabilities before it gets a version tag, signed with cosign through GitHub's OIDC identity, and carries a build provenance attestation and an SBOM.
 Each image gets its exact version as a tag, which never moves, and `latest` points at the newest stable release.
 Use `latest` for trying SRDP out, and pin the exact version (or the digest) in a deployment, so it only changes when you change it.
-The Compose files and the Helm chart do not pull these images yet, they still build or pull the images from your own registry (`[deploy] registry` in `srdp.toml`).
+The Compose files and the Helm chart do not pull these images yet.
+Both still use images from your own registry, which is set by `[deploy] registry` in `srdp.toml`.
 
 Check an image before you deploy it, with [cosign](https://docs.sigstore.dev/cosign/system_config/installation/) and the [GitHub CLI](https://cli.github.com/):
 

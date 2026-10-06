@@ -8,7 +8,7 @@ This file describes the structure and rules of the **Single-Repo Data Platform (
 
 SRDP assembles a modern open-source data platform (Zitadel, Traefik, Dagster, Polars/DuckDB, marimo) into a single Git repository with two deployment targets: Docker Compose and Kubernetes (Helm + Scaleway Kapsule).
 
-Every change should move SRDP toward a production ready, hardened and configurable platform that deploys with a single command and standard settings in `srdp.toml`.
+Every change should move SRDP toward a production-ready, hardened and configurable platform that deploys with a single command and standard settings in `srdp.toml`.
 
 ---
 
