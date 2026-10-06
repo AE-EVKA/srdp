@@ -25,6 +25,9 @@ on:
     paths: *image-inputs
   release:
     types: [published]
+  # A new CVE can fail the scan without any change here, so scan main every day.
+  schedule:
+    - cron: "0 5 * * *"
 
 permissions:
   contents: read
