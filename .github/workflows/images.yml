@@ -1,7 +1,10 @@
 name: Images
 
 # Builds SRDP's platform images. On a pull request and on every push to
-# main it builds and scans without pushing, so main stays buildable.
+# main it builds and scans without pushing, so main stays buildable. A pull
+# request fails on a critical CVE. On main and in the daily run a new CVE is
+# a finding in the Security tab and Dependabot opens the fix, it does not
+# turn main red.
 # On a published release every image is pushed by digest, scanned, signed
 # and attested, and only when all of them pass do they get version tags,
 # so a tag never points at an image that failed a check.
@@ -25,14 +28,26 @@ on:
     paths: *image-inputs
   release:
     types: [published]
+  # A new CVE shows up without any change here, so scan main every day.
+  schedule:
+    - cron: "0 5 * * *"
 
 permissions:
   contents: read
+
+# A newer push to a pull request cancels the older run. Pushes to main, the
+# daily run and releases are never cancelled.
+concurrency:
+  group: images-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   check:
     if: github.event_name != 'release'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
     strategy:
       fail-fast: false
       matrix: &images
@@ -60,8 +75,11 @@ jobs:
           file: ${{ matrix.dockerfile }}
           load: true
           tags: ${{ matrix.name }}:check
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
 
       - name: Scan
+        if: github.event_name == 'pull_request'
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: ${{ matrix.name }}:check
@@ -69,6 +87,26 @@ jobs:
           ignore-unfixed: true
           exit-code: "1"
           trivyignores: .trivyignore
+
+      # On main and in the daily run the scan reports, it does not fail.
+      - name: Scan and report
+        if: github.event_name != 'pull_request'
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ matrix.name }}:check
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "0"
+          trivyignores: .trivyignore
+          format: sarif
+          output: trivy-${{ matrix.name }}.sarif
+
+      - name: Upload the findings
+        if: github.event_name != 'pull_request'
+        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        with:
+          sarif_file: trivy-${{ matrix.name }}.sarif
+          category: trivy-${{ matrix.name }}
 
       # Reported, not blocking: only srdp-setup runs as non-root today.
       - name: Report the user the image runs as
