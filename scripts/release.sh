@@ -2,10 +2,13 @@
 # Release script for SRDP.
 # Usage: ./scripts/release.sh <version>
 # Example: ./scripts/release.sh 0.3.0
+#          ./scripts/release.sh 0.4.0-rc.1   (pre-release)
 #
 # GitHub Flow: releases tag a commit on main directly, there is no separate
 # release branch. This script bumps the version, renames the CHANGELOG.md
-# [Unreleased] section to the new version, runs CI, commits, and tags. It
+# [Unreleased] section to the new version, runs CI, commits, and tags. A
+# pre-release (X.Y.Z-rc.N) leaves the CHANGELOG alone, so the final release
+# still owns the [Unreleased] entries. It
 # does not build or publish anything, that's .github/workflows/publish.yml's
 # job, triggered separately once a human publishes the draft release.
 # Pushing the tag triggers .github/workflows/release.yml, which drafts a
@@ -42,8 +45,13 @@ fi
 
 VERSION="$1"
 
-if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    error "Invalid version format. Use semantic versioning: X.Y.Z (e.g., 0.3.0)"
+if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]]; then
+    error "Invalid version format. Use X.Y.Z (e.g., 0.3.0) or X.Y.Z-rc.N (e.g., 0.4.0-rc.1)"
+fi
+
+PRERELEASE=false
+if [[ "$VERSION" == *-* ]]; then
+    PRERELEASE=true
 fi
 
 if [ -n "$(git status --porcelain)" ]; then
@@ -59,30 +67,37 @@ if git rev-parse "v$VERSION" >/dev/null 2>&1; then
     error "Tag v$VERSION already exists."
 fi
 
-PREVIOUS_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+# The last stable tag, so 0.4.0 compares against 0.3.1 and not against 0.4.0-rc.1.
+PREVIOUS_TAG=$(git describe --tags --abbrev=0 --exclude '*-*' 2>/dev/null || echo "")
 
 info "Starting release process for version $VERSION"
 
-if ! grep -q "^## \[Unreleased\]" CHANGELOG.md; then
-    error "CHANGELOG.md has no [Unreleased] section to release."
-fi
+if [ "$PRERELEASE" = false ]; then
+    if ! grep -q "^## \[Unreleased\]" CHANGELOG.md; then
+        error "CHANGELOG.md has no [Unreleased] section to release."
+    fi
 
-UNRELEASED_BODY=$(awk '/^## \[Unreleased\]/{flag=1; next} /^## /{flag=0} flag' CHANGELOG.md)
-if [ -z "$(echo "$UNRELEASED_BODY" | tr -d '[:space:]')" ]; then
-    warn "CHANGELOG.md's [Unreleased] section is empty. Add entries before releasing, or continue if this is intentional."
+    UNRELEASED_BODY=$(awk '/^## \[Unreleased\]/{flag=1; next} /^## /{flag=0} flag' CHANGELOG.md)
+    if [ -z "$(echo "$UNRELEASED_BODY" | tr -d '[:space:]')" ]; then
+        warn "CHANGELOG.md's [Unreleased] section is empty. Add entries before releasing, or continue if this is intentional."
+    fi
 fi
 
 info "Updating version in pyproject.toml..."
 sed -i.bak "s/^version = \".*\"/version = \"$VERSION\"/" pyproject.toml
 rm pyproject.toml.bak
 
-info "Renaming CHANGELOG.md's [Unreleased] section to $VERSION..."
-RELEASE_DATE=$(date +%Y-%m-%d)
-sed -i.bak "s/^## \[Unreleased\]/## [Unreleased]\n\n## [$VERSION] - $RELEASE_DATE/" CHANGELOG.md
-rm CHANGELOG.md.bak
-if [ -n "$PREVIOUS_TAG" ]; then
-    sed -i.bak "s#^\[Unreleased\]: .*#[Unreleased]: https://github.com/srdp-hub/srdp/compare/v$VERSION...HEAD\n[$VERSION]: https://github.com/srdp-hub/srdp/compare/$PREVIOUS_TAG...v$VERSION#" CHANGELOG.md
+if [ "$PRERELEASE" = false ]; then
+    info "Renaming CHANGELOG.md's [Unreleased] section to $VERSION..."
+    RELEASE_DATE=$(date +%Y-%m-%d)
+    sed -i.bak "s/^## \[Unreleased\]/## [Unreleased]\n\n## [$VERSION] - $RELEASE_DATE/" CHANGELOG.md
     rm CHANGELOG.md.bak
+    if [ -n "$PREVIOUS_TAG" ]; then
+        sed -i.bak "s#^\[Unreleased\]: .*#[Unreleased]: https://github.com/srdp-hub/srdp/compare/v$VERSION...HEAD\n[$VERSION]: https://github.com/srdp-hub/srdp/compare/$PREVIOUS_TAG...v$VERSION#" CHANGELOG.md
+        rm CHANGELOG.md.bak
+    fi
+else
+    info "Pre-release, leaving CHANGELOG.md alone."
 fi
 
 info "Updating uv.lock..."
@@ -110,5 +125,5 @@ echo ""
 echo "Next steps:"
 echo "  1. Push the commit: git push origin main"
 echo "  2. Push the tag:    git push origin v$VERSION"
-echo "  3. This triggers .github/workflows/release.yml, which drafts a GitHub Release."
+echo "  3. This triggers .github/workflows/release.yml, which drafts a GitHub Release (marked as a pre-release for X.Y.Z-rc.N)."
 echo "  4. Review and edit the draft, then publish it: https://github.com/srdp-hub/srdp/releases"
