@@ -19,7 +19,7 @@ We aim to acknowledge reports within 72 hours and will keep you informed as we w
 
 Only the latest release is actively maintained. We do not backport security fixes to older versions.
 
-The supported Python runtime is **3.12 and above**. Older Python versions will not receive fixes.
+The supported Python runtime is **3.12**, and 3.13 is planned. Other Python versions will not receive fixes.
 
 ## Scope
 
