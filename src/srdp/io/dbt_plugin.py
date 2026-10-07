@@ -17,16 +17,18 @@ The catalog, the data path and the S3 secret all come from the same
 import duckdb
 from dbt.adapters.duckdb.plugins import BasePlugin
 
-from srdp.io.ducklake import DuckLakeSettings, attach_catalog
+from srdp.io.ducklake import DuckLakeSettings, attach_catalog, ensure_database
 
 
 class Plugin(BasePlugin):
     """Attach the DuckLake catalog, on the configured storage, to every dbt connection."""
 
     def configure_connection(self, conn: duckdb.DuckDBPyConnection) -> None:
-        """Configure storage and attach the ``ducklake`` catalog.
+        """Create the catalog database if it is missing, then configure storage and attach the ``ducklake`` catalog.
 
         Args:
             conn: The connection dbt-duckdb just opened.
         """
-        attach_catalog(conn, DuckLakeSettings())  # ty: ignore[missing-argument]
+        settings = DuckLakeSettings()  # ty: ignore[missing-argument]
+        ensure_database(settings)
+        attach_catalog(conn, settings)

@@ -3,7 +3,7 @@
 import logging
 import time
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from typing import Annotated, Literal
 
 import duckdb
 import polars as pl
@@ -18,7 +18,7 @@ from dagster import (
     TableSchema,
     io_manager,
 )
-from psycopg2 import sql
+from psycopg2 import errorcodes, sql
 from pydantic import Field, SecretStr, StringConstraints, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -42,6 +42,12 @@ class DuckLakeSettings(BaseSettings):
     with ``DUCKLAKE_`` (e.g. ``DUCKLAKE_PG_HOST``). The ``pg_*`` fields
     locate the Postgres catalog. ``storage_backend`` picks where the data
     files live: ``data_path`` for ``local``, ``S3StorageSettings`` for ``s3``.
+    An empty variable counts as unset, so it falls back to the default.
+
+    A catalog keeps the data path it was created with, and its tables point
+    at files under it. Switching an existing catalog between ``local`` and
+    ``s3`` leaves those tables pointing at the old location, so give the new
+    backend a new catalog database (``pg_db``) instead.
     """
 
     model_config = SettingsConfigDict(
@@ -49,6 +55,7 @@ class DuckLakeSettings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
+        env_ignore_empty=True,
         hide_input_in_errors=True,  # errors end up in logs and must not echo a password or key
     )
 
@@ -79,7 +86,8 @@ class DuckLakeSettings(BaseSettings):
 
 
 # Compose turns an unset ``${VAR:-}`` into an empty string, which DuckDB would
-# read as "use the AWS default". Required S3 settings therefore reject it.
+# read as "use the AWS default". ``env_ignore_empty`` makes an empty variable
+# count as unset, and this type also rejects a blank value passed in directly.
 _Required = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 
 
@@ -101,6 +109,7 @@ class S3StorageSettings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
+        env_ignore_empty=True,
         hide_input_in_errors=True,  # errors end up in logs and must not echo a password or key
     )
 
@@ -112,6 +121,12 @@ class S3StorageSettings(BaseSettings):
     use_ssl: bool = True
     key_id: _Required
     secret: SecretStr = Field(min_length=1)
+
+    @field_validator("secret", mode="before")
+    @classmethod
+    def _strip_secret(cls, secret: object) -> object:
+        """Strip whitespace like ``key_id``, so a padded ``.env`` line does not become a bad signature."""
+        return secret.strip() if isinstance(secret, str) else secret
 
     @field_validator("endpoint")
     @classmethod
@@ -208,35 +223,6 @@ class S3StorageBackend(StorageBackend):
         )
         logger.info("Configured S3 secret for %s (endpoint=%s).", self.get_base_path(), s3.endpoint)
 
-    def dlt_filesystem_config(self) -> dict[str, Any]:
-        """Render these settings as a dlt ``FilesystemConfiguration``.
-
-        Pass the result to ``dlt.destinations.filesystem(**config)`` so a dlt
-        pipeline writes with the same bucket, endpoint and key as DuckDB.
-
-        dlt reads ``s3_url_style`` only for its DuckDB SQL client. The
-        filesystem destination writes through s3fs, which ignores it and uses
-        boto's own addressing. Scaleway, Hetzner and MinIO all accept that, so
-        the writes work today, but ``DUCKLAKE_S3_URL_STYLE`` doesn't reach
-        them. Passing it on to s3fs as well is left to the first PR that adds
-        dlt as a dependency, where it can be tested against a real dlt install.
-
-        Returns:
-            ``bucket_url`` plus ``credentials`` with dlt's ``AwsCredentials`` field names.
-        """
-        s3 = self._s3
-        scheme = "https" if s3.use_ssl else "http"
-        return {
-            "bucket_url": self.get_base_path(),
-            "credentials": {
-                "aws_access_key_id": s3.key_id,
-                "aws_secret_access_key": s3.secret.get_secret_value(),
-                "endpoint_url": f"{scheme}://{s3.endpoint}",
-                "region_name": s3.region,
-                "s3_url_style": s3.url_style,
-            },
-        }
-
 
 def _sql_string(value: str) -> str:
     """Quote ``value`` as a SQL string literal, doubling embedded quotes."""
@@ -274,12 +260,18 @@ def get_storage_backend(settings: DuckLakeSettings) -> StorageBackend:
 # ---------------------------------------------------------------------------
 
 
+# What Postgres raises for a CREATE DATABASE that loses to a concurrent one:
+# a duplicate name, or the unique index on pg_database when both commit at once.
+_DATABASE_EXISTS_CODES = {errorcodes.DUPLICATE_DATABASE, errorcodes.UNIQUE_VIOLATION}
+
+
 def ensure_database(settings: DuckLakeSettings) -> None:
     """Create the DuckLake PostgreSQL metadata database if it does not exist.
 
     Connects to the default ``postgres`` database to check for and optionally
     create the target database. Uses autocommit because ``CREATE DATABASE``
-    cannot run inside a transaction.
+    cannot run inside a transaction. Two processes that both find it missing
+    both create it, and the one Postgres refuses treats it as existing.
 
     Args:
         settings: DuckLake settings with PostgreSQL connection details.
@@ -298,9 +290,15 @@ def ensure_database(settings: DuckLakeSettings) -> None:
             if cur.fetchone():
                 logger.info("DuckLake database '%s' already exists.", settings.pg_db)
                 return
-            cur.execute(
-                sql.SQL("CREATE DATABASE {}").format(sql.Identifier(settings.pg_db)),
-            )
+            try:
+                cur.execute(
+                    sql.SQL("CREATE DATABASE {}").format(sql.Identifier(settings.pg_db)),
+                )
+            except psycopg2.Error as exc:
+                if exc.pgcode not in _DATABASE_EXISTS_CODES:
+                    raise
+                logger.info("DuckLake database '%s' was created by another process.", settings.pg_db)
+                return
 
             logger.info("Created DuckLake database '%s'.", settings.pg_db)
     finally:

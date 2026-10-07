@@ -61,16 +61,53 @@ def test_s3_backend_refuses_to_start_without_its_settings():
     assert _invalid_fields(exc) == {"bucket", "endpoint", "url_style", "region", "key_id", "secret"}
 
 
+def test_an_empty_storage_backend_in_the_environment_means_local(monkeypatch, tmp_path):
+    monkeypatch.setenv("DUCKLAKE_STORAGE_BACKEND", "")
+
+    backend = get_storage_backend(_settings(data_path=str(tmp_path / "lake")))
+
+    assert isinstance(backend, LocalStorageBackend)
+
+
 # S3 settings
 
 
+@pytest.mark.parametrize("value", ["", "  "])
 @pytest.mark.parametrize("field", ["bucket", "endpoint", "region", "key_id", "secret"])
-def test_s3_treats_an_empty_setting_as_missing(field):
+def test_s3_treats_a_blank_setting_as_missing(field, value):
     """Compose's ``${VAR:-}`` passes an empty string; DuckDB would read it as "use the AWS default"."""
     with pytest.raises(ValidationError) as exc:
-        S3StorageSettings(_env_file=None, **{**S3, field: ""})
+        S3StorageSettings(_env_file=None, **{**S3, field: value})
 
     assert _invalid_fields(exc) == {field}
+
+
+@pytest.mark.parametrize("field", ["bucket", "endpoint", "url_style", "region", "key_id", "secret"])
+def test_s3_treats_an_empty_required_setting_in_the_environment_as_missing(monkeypatch, field):
+    for key, value in S3.items():
+        monkeypatch.setenv(f"DUCKLAKE_S3_{key.upper()}", value)
+    monkeypatch.setenv(f"DUCKLAKE_S3_{field.upper()}", "")
+
+    with pytest.raises(ValidationError) as exc:
+        S3StorageSettings(_env_file=None)
+
+    assert _invalid_fields(exc) == {field}
+
+
+def test_s3_falls_back_to_the_default_for_an_empty_optional_setting_in_the_environment(monkeypatch):
+    for key, value in S3.items():
+        monkeypatch.setenv(f"DUCKLAKE_S3_{key.upper()}", value)
+    monkeypatch.setenv("DUCKLAKE_S3_USE_SSL", "")
+
+    assert S3StorageSettings(_env_file=None).use_ssl is True
+
+
+def test_s3_secret_is_stripped_like_the_key_id():
+    """A pasted ``.env`` line can carry a trailing space or newline, which S3 would reject as a bad signature."""
+    settings = S3StorageSettings(_env_file=None, **{**S3, "key_id": " SCWREADER ", "secret": " reader-secret\n"})
+
+    assert settings.key_id == "SCWREADER"
+    assert settings.secret.get_secret_value() == "reader-secret"
 
 
 def test_s3_endpoint_with_a_scheme_is_refused():
@@ -116,21 +153,6 @@ def test_a_quote_in_a_credential_cannot_break_out_of_the_secret_sql():
 
     [secret] = _s3_secrets(conn)
     assert secret["key_id"] == "a'b"
-
-
-def test_dlt_gets_the_same_bucket_endpoint_and_key():
-    backend = _s3_backend(endpoint="minio:9000", use_ssl=False)
-
-    assert backend.dlt_filesystem_config() == {
-        "bucket_url": "s3://lake/dev/",
-        "credentials": {
-            "aws_access_key_id": "SCWREADER",
-            "aws_secret_access_key": "reader-secret",
-            "endpoint_url": "http://minio:9000",
-            "region_name": "nl-ams",
-            "s3_url_style": "path",
-        },
-    }
 
 
 # Catalog-setup race
