@@ -19,7 +19,7 @@ from dagster import (
     io_manager,
 )
 from psycopg2 import errorcodes, sql
-from pydantic import Field, SecretStr, StringConstraints, field_validator
+from pydantic import Field, Secret, StringConstraints, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from srdp.io.storage import StorageBackend
@@ -120,13 +120,7 @@ class S3StorageSettings(BaseSettings):
     region: _Required = Field(description="Region used to sign requests, e.g. nl-ams.")
     use_ssl: bool = True
     key_id: _Required
-    secret: SecretStr = Field(min_length=1)
-
-    @field_validator("secret", mode="before")
-    @classmethod
-    def _strip_secret(cls, secret: object) -> object:
-        """Strip whitespace like ``key_id``, so a padded ``.env`` line does not become a bad signature."""
-        return secret.strip() if isinstance(secret, str) else secret
+    secret: Secret[_Required]
 
     @field_validator("endpoint")
     @classmethod
