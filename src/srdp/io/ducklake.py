@@ -18,7 +18,7 @@ from dagster import (
     TableSchema,
     io_manager,
 )
-from psycopg2 import errorcodes, sql
+from psycopg2 import sql
 from pydantic import Field, Secret, StringConstraints, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -254,18 +254,12 @@ def get_storage_backend(settings: DuckLakeSettings) -> StorageBackend:
 # ---------------------------------------------------------------------------
 
 
-# What Postgres raises for a CREATE DATABASE that loses to a concurrent one:
-# a duplicate name, or the unique index on pg_database when both commit at once.
-_DATABASE_EXISTS_CODES = {errorcodes.DUPLICATE_DATABASE, errorcodes.UNIQUE_VIOLATION}
-
-
 def ensure_database(settings: DuckLakeSettings) -> None:
     """Create the DuckLake PostgreSQL metadata database if it does not exist.
 
     Connects to the default ``postgres`` database to check for and optionally
     create the target database. Uses autocommit because ``CREATE DATABASE``
-    cannot run inside a transaction. Two processes that both find it missing
-    both create it, and the one Postgres refuses treats it as existing.
+    cannot run inside a transaction.
 
     Args:
         settings: DuckLake settings with PostgreSQL connection details.
@@ -284,15 +278,9 @@ def ensure_database(settings: DuckLakeSettings) -> None:
             if cur.fetchone():
                 logger.info("DuckLake database '%s' already exists.", settings.pg_db)
                 return
-            try:
-                cur.execute(
-                    sql.SQL("CREATE DATABASE {}").format(sql.Identifier(settings.pg_db)),
-                )
-            except psycopg2.Error as exc:
-                if exc.pgcode not in _DATABASE_EXISTS_CODES:
-                    raise
-                logger.info("DuckLake database '%s' was created by another process.", settings.pg_db)
-                return
+            cur.execute(
+                sql.SQL("CREATE DATABASE {}").format(sql.Identifier(settings.pg_db)),
+            )
 
             logger.info("Created DuckLake database '%s'.", settings.pg_db)
     finally:

@@ -96,38 +96,6 @@ def test_dbt_connection_on_local_storage_attaches_the_lake_without_a_secret(duck
     assert data_path.rstrip("/") == str(tmp_path / "lake")
 
 
-def test_dbt_connection_creates_the_catalog_database_when_it_is_missing(postgres, ducklake_env, monkeypatch):
-    """A dbt run outside Compose and the chart has no srdp-setup to create the database first."""
-    container, _ = postgres
-    database = f"ducklake_{uuid.uuid4().hex[:8]}"
-    monkeypatch.setenv("DUCKLAKE_PG_DB", database)
-    conn = duckdb.connect()
-
-    BasePlugin.create("srdp.io.dbt_plugin").configure_connection(conn)
-
-    listed = _docker("exec", container, "psql", "-U", "postgres", "-tAc", "SELECT datname FROM pg_database")
-    assert database in listed.stdout.decode().split()
-    assert conn.execute("SELECT count(*) FROM ducklake.options()").fetchone()[0] > 0
-
-
-def test_dbt_connections_racing_to_create_a_missing_catalog_database_all_attach(ducklake_env, monkeypatch):
-    """Two processes that both find the database missing both run CREATE DATABASE, and Postgres refuses the second."""
-    monkeypatch.setenv("DUCKLAKE_PG_DB", f"ducklake_{uuid.uuid4().hex[:8]}")
-    racers = 4
-    start = threading.Barrier(racers)
-    conns = [duckdb.connect() for _ in range(racers)]
-
-    def attach(conn: duckdb.DuckDBPyConnection) -> None:
-        start.wait()
-        BasePlugin.create("srdp.io.dbt_plugin").configure_connection(conn)
-
-    with ThreadPoolExecutor(racers) as pool:
-        list(pool.map(attach, conns))
-
-    for conn in conns:
-        assert conn.execute("SELECT count(*) FROM ducklake.options()").fetchone()[0] > 0
-
-
 def test_dbt_connections_racing_to_set_up_a_new_catalog_all_attach(ducklake_env, tmp_path, caplog):
     """A dbt run next to Dagster, or a second dbt run, can make the first ATTACH of a new catalog at the same moment."""
     racers = 4

@@ -12,23 +12,26 @@ its own::
 
 The catalog, the data path and the S3 secret all come from the same
 ``DUCKLAKE_*`` settings that Dagster and the apps read.
+
+The plugin only attaches. It doesn't create a missing catalog database,
+because ``srdp-setup`` owns that, and on a managed Postgres a missing
+database means a misconfiguration that should fail instead of starting an
+empty catalog.
 """
 
 import duckdb
 from dbt.adapters.duckdb.plugins import BasePlugin
 
-from srdp.io.ducklake import DuckLakeSettings, attach_catalog, ensure_database
+from srdp.io.ducklake import DuckLakeSettings, attach_catalog
 
 
 class Plugin(BasePlugin):
     """Attach the DuckLake catalog, on the configured storage, to every dbt connection."""
 
     def configure_connection(self, conn: duckdb.DuckDBPyConnection) -> None:
-        """Create the catalog database if it is missing, then configure storage and attach the ``ducklake`` catalog.
+        """Configure storage and attach the ``ducklake`` catalog.
 
         Args:
             conn: The connection dbt-duckdb just opened.
         """
-        settings = DuckLakeSettings()  # ty: ignore[missing-argument]
-        ensure_database(settings)
-        attach_catalog(conn, settings)
+        attach_catalog(conn, DuckLakeSettings())  # ty: ignore[missing-argument]
