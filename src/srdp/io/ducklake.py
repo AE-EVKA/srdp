@@ -98,7 +98,7 @@ class S3StorageSettings(BaseSettings):
     an environment variable prefixed with ``DUCKLAKE_S3_`` (e.g.
     ``DUCKLAKE_S3_BUCKET``). Endpoint, URL style and region have no AWS
     fallback on purpose: AWS defaults do not work against Scaleway, Hetzner
-    or MinIO.
+    or Garage.
 
     Each process gets one key pair. The deployment decides whether that is a
     read-only key (query-serving apps) or a writer key (Dagster and dbt).
@@ -115,7 +115,7 @@ class S3StorageSettings(BaseSettings):
 
     bucket: _Required
     prefix: str = ""
-    endpoint: _Required = Field(description="Bare host[:port], e.g. s3.nl-ams.scw.cloud or minio:9000.")
+    endpoint: _Required = Field(description="Bare host[:port], e.g. s3.nl-ams.scw.cloud or garage:3900.")
     url_style: Literal["path", "vhost"]
     region: _Required = Field(description="Region used to sign requests, e.g. nl-ams.")
     use_ssl: bool = True
