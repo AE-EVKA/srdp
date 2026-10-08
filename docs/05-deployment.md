@@ -58,6 +58,9 @@ just prod-use-kubeconfig   # from repo root
 - Copy `deploy/kubernetes/srdp-chart/values-prod.example.yaml` to `deploy/kubernetes/srdp-chart/values-prod.yaml` if you are starting fresh.
 - Fill in `global.domain`, the `oauth2-proxy` cookie and whitelist domains, and the ACME email for Traefik.
   Use a real domain or `<lb-ip>.nip.io` once you know the load balancer IP.
+  Let's Encrypt's HTTP and TLS challenges need the machine to be publicly reachable on that domain.
+  A machine that isn't reachable can still use Let's Encrypt through a DNS challenge, if the organisation controls the public DNS of a real domain.
+  A machine with only an internal name needs the organisation's own certificate.
 - Set the registry in `srdp.toml` under `[deploy] registry`.
   The `prod-*` recipes pass it to the chart as `global.srdpRegistry` and as the `srdp-etl` repository.
 - The values files hold no passwords or keys.
@@ -153,6 +156,28 @@ just prod-auth-only
 just prod-full
 ```
 
+## Verifying published images
+
+From the first release that includes the images workflow, every release publishes SRDP's platform images (`srdp-setup`, `dagster-webserver`, `duckdb-ui` and `hub`) to `ghcr.io/srdp-hub/<image>:<version>`.
+Each image is scanned for critical vulnerabilities before it gets a version tag, signed with cosign through GitHub's OIDC identity, and carries a build provenance attestation and an SBOM.
+Each image gets its exact version as a tag, which never moves, and `latest` points at the newest stable release.
+Use `latest` for trying SRDP out, and pin the exact version (or the digest) in a deployment, so it only changes when you change it.
+The Compose files and the Helm chart do not pull these images yet.
+Both still use images from your own registry, which is set by `[deploy] registry` in `srdp.toml`.
+
+Check an image before you deploy it, with [cosign](https://docs.sigstore.dev/cosign/system_config/installation/) and the [GitHub CLI](https://cli.github.com/):
+
+```bash
+# The signature comes from this repo's images workflow
+cosign verify ghcr.io/srdp-hub/srdp-setup:<version> \
+  --certificate-identity-regexp '^https://github.com/srdp-hub/srdp/.github/workflows/images.yml@' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+
+# The image was built from this repo, with a traceable commit and workflow run
+gh attestation verify oci://ghcr.io/srdp-hub/srdp-setup:<version> --repo srdp-hub/srdp
+```
+
+
 ## Secrets management
 
 Secrets are managed through environment-specific mechanisms and are never committed to Git.
@@ -180,7 +205,7 @@ backup:
       resourcePolicy: "keep"   # PVC survives helm uninstall
 ```
 
-All three databases (Zitadel, Dagster, DuckLake catalog) are backed up because they share the same PostgreSQL instance. The `resourcePolicy: keep` ensures backup PVCs survive accidental `helm uninstall`.
+All four databases (Zitadel, Dagster, Marquez, DuckLake catalog) are backed up because they share the same PostgreSQL instance. The `resourcePolicy: keep` ensures backup PVCs survive accidental `helm uninstall`.
 
 For DuckLake data files on object storage, enable bucket versioning on your provider to allow file-level recovery.
 

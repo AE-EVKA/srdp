@@ -12,6 +12,11 @@ its own::
 
 The catalog, the data path and the S3 secret all come from the same
 ``DUCKLAKE_*`` settings that Dagster and the apps read.
+
+The plugin only attaches. It doesn't create a missing catalog database,
+because ``srdp-setup`` owns that, and on a managed Postgres a missing
+database means a misconfiguration that should fail instead of starting an
+empty catalog.
 """
 
 import duckdb

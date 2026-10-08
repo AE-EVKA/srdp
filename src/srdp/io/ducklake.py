@@ -3,7 +3,7 @@
 import logging
 import time
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from typing import Annotated, Literal
 
 import duckdb
 import polars as pl
@@ -19,7 +19,7 @@ from dagster import (
     io_manager,
 )
 from psycopg2 import sql
-from pydantic import Field, SecretStr, StringConstraints, field_validator
+from pydantic import Field, Secret, StringConstraints, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from srdp.io.storage import StorageBackend
@@ -42,6 +42,12 @@ class DuckLakeSettings(BaseSettings):
     with ``DUCKLAKE_`` (e.g. ``DUCKLAKE_PG_HOST``). The ``pg_*`` fields
     locate the Postgres catalog. ``storage_backend`` picks where the data
     files live: ``data_path`` for ``local``, ``S3StorageSettings`` for ``s3``.
+    An empty variable counts as unset, so it falls back to the default.
+
+    A catalog keeps the data path it was created with, and its tables point
+    at files under it. Switching an existing catalog between ``local`` and
+    ``s3`` leaves those tables pointing at the old location, so give the new
+    backend a new catalog database (``pg_db``) instead.
     """
 
     model_config = SettingsConfigDict(
@@ -49,6 +55,7 @@ class DuckLakeSettings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
+        env_ignore_empty=True,
         hide_input_in_errors=True,  # errors end up in logs and must not echo a password or key
     )
 
@@ -79,7 +86,8 @@ class DuckLakeSettings(BaseSettings):
 
 
 # Compose turns an unset ``${VAR:-}`` into an empty string, which DuckDB would
-# read as "use the AWS default". Required S3 settings therefore reject it.
+# read as "use the AWS default". ``env_ignore_empty`` makes an empty variable
+# count as unset, and this type also rejects a blank value passed in directly.
 _Required = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 
 
@@ -90,7 +98,7 @@ class S3StorageSettings(BaseSettings):
     an environment variable prefixed with ``DUCKLAKE_S3_`` (e.g.
     ``DUCKLAKE_S3_BUCKET``). Endpoint, URL style and region have no AWS
     fallback on purpose: AWS defaults do not work against Scaleway, Hetzner
-    or MinIO.
+    or Garage.
 
     Each process gets one key pair. The deployment decides whether that is a
     read-only key (query-serving apps) or a writer key (Dagster and dbt).
@@ -101,17 +109,18 @@ class S3StorageSettings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
+        env_ignore_empty=True,
         hide_input_in_errors=True,  # errors end up in logs and must not echo a password or key
     )
 
     bucket: _Required
     prefix: str = ""
-    endpoint: _Required = Field(description="Bare host[:port], e.g. s3.nl-ams.scw.cloud or minio:9000.")
+    endpoint: _Required = Field(description="Bare host[:port], e.g. s3.nl-ams.scw.cloud or garage:3900.")
     url_style: Literal["path", "vhost"]
     region: _Required = Field(description="Region used to sign requests, e.g. nl-ams.")
     use_ssl: bool = True
     key_id: _Required
-    secret: SecretStr = Field(min_length=1)
+    secret: Secret[_Required]
 
     @field_validator("endpoint")
     @classmethod
@@ -207,28 +216,6 @@ class S3StorageBackend(StorageBackend):
             f"SCOPE {_sql_string(self.get_base_path())})"
         )
         logger.info("Configured S3 secret for %s (endpoint=%s).", self.get_base_path(), s3.endpoint)
-
-    def dlt_filesystem_config(self) -> dict[str, Any]:
-        """Render these settings as a dlt ``FilesystemConfiguration``.
-
-        Pass the result to ``dlt.destinations.filesystem(**config)`` so a dlt
-        pipeline writes with the same bucket, endpoint and key as DuckDB.
-
-        Returns:
-            ``bucket_url`` plus ``credentials`` with dlt's ``AwsCredentials`` field names.
-        """
-        s3 = self._s3
-        scheme = "https" if s3.use_ssl else "http"
-        return {
-            "bucket_url": self.get_base_path(),
-            "credentials": {
-                "aws_access_key_id": s3.key_id,
-                "aws_secret_access_key": s3.secret.get_secret_value(),
-                "endpoint_url": f"{scheme}://{s3.endpoint}",
-                "region_name": s3.region,
-                "s3_url_style": s3.url_style,
-            },
-        }
 
 
 def _sql_string(value: str) -> str:
@@ -343,29 +330,8 @@ def create_connection(
     if backend is None:
         backend = get_storage_backend(settings)
 
-    conn = _prepare_connection(duckdb.connect(), backend)
-    attach_query = _attach_sql(settings, backend)
-
-    max_retries = 3
-    for attempt in range(max_retries):
-        try:
-            conn.execute(attach_query)
-            break
-        except duckdb.Error as exc:
-            if "already exists" in str(exc) and attempt < max_retries - 1:
-                logger.warning("DuckLake catalog init race (attempt %d), retrying...", attempt + 1)
-                time.sleep(1)
-                conn.close()
-                conn = _prepare_connection(duckdb.connect(), backend)
-            else:
-                raise
-
-    _apply_tuning_options(conn, settings)
-    logger.info(
-        "Attached DuckLake catalog (db=%s, data_path=%s).",
-        settings.pg_db,
-        backend.get_base_path(),
-    )
+    conn = duckdb.connect()
+    _attach(conn, settings, backend)
     return conn
 
 
@@ -397,15 +363,23 @@ def attach_catalog(
 
     For callers that own the connection, such as the dbt-duckdb plugin in
     ``srdp.io.dbt_plugin``. Code that can open its own connection uses
-    ``setup_ducklake`` instead, which also retries a concurrent init race.
+    ``setup_ducklake`` instead. Both retry when another process is
+    initializing the same new catalog.
 
     Args:
         conn: An open DuckDB connection.
         settings: DuckLake settings with the catalog and storage details.
+
+    Raises:
+        duckdb.Error: If the catalog cannot be attached after all retries.
     """
-    backend = get_storage_backend(settings)
+    _attach(conn, settings, get_storage_backend(settings))
+
+
+def _attach(conn: duckdb.DuckDBPyConnection, settings: DuckLakeSettings, backend: StorageBackend) -> None:
+    """Configure ``backend`` on ``conn``, attach the catalog with the init-race retry, and apply the tuning options."""
     _prepare_connection(conn, backend)
-    conn.execute(_attach_sql(settings, backend))
+    _attach_with_retry(conn, _attach_sql(settings, backend))
     _apply_tuning_options(conn, settings)
     logger.info("Attached DuckLake catalog (db=%s, data_path=%s).", settings.pg_db, backend.get_base_path())
 
@@ -416,6 +390,29 @@ def _prepare_connection(conn: duckdb.DuckDBPyConnection, backend: StorageBackend
     conn.execute("LOAD ducklake")
     backend.configure_duckdb(conn)
     return conn
+
+
+def _attach_with_retry(conn: duckdb.DuckDBPyConnection, attach_query: str) -> None:
+    """Run ``attach_query`` on ``conn``, retrying when another process is initializing the same catalog.
+
+    The first ``ATTACH`` of a new catalog creates its metadata tables, so two
+    processes doing that at once make one of them fail with "already exists".
+    The catalog is usable by then, so the loser retries on the same connection.
+
+    Raises:
+        duckdb.Error: If the attach fails for another reason, or still races on the last attempt.
+    """
+    max_attempts = 3
+    for attempt in range(1, max_attempts + 1):
+        try:
+            conn.execute(attach_query)
+        except duckdb.Error as exc:
+            if "already exists" not in str(exc) or attempt == max_attempts:
+                raise
+            logger.warning("DuckLake catalog init race (attempt %d), retrying...", attempt)
+            time.sleep(1)
+        else:
+            return
 
 
 def _attach_sql(settings: DuckLakeSettings, backend: StorageBackend) -> str:

@@ -28,7 +28,7 @@ Placeholders use the `CHANGE_ME_*` prefix convention.
 
 ### Helm chart
 
-- Release name: `srdp` — services are `srdp-<component>`.
+- Release name: `srdp`, so services are `srdp-<component>`.
 - Namespace: always `srdp`.
 - Values layering: `values.yaml` (base) → `values-local.yaml` → `values-prod.yaml` (gitignored).
 - Every template guarded by `{{- if .Values.<component>.enabled }}`.
@@ -41,20 +41,18 @@ Placeholders use the `CHANGE_ME_*` prefix convention.
 Registry: `[deploy] registry` in `srdp.toml`.
 The Justfile passes it to builds and to the chart, so never hardcode it elsewhere.
 
-| Image | Source | Tag |
-|:---|:---|:---|
-| `marimo` | `projects/cbs-example/notebooks/` (build context: repo root) | `v1.0` |
-| `quarto` | `services/quarto/` | `v1.0` |
-| `srdp-etl` | `projects/cbs-example/` (build context: repo root) | `v1.0` |
-
-Build and push: `just build-and-push`
-
-`srdp-etl` must be built from the repo root (Dockerfile copies `pyproject.toml`, `uv.lock`, `src/`, `projects/`).
+The images and their Dockerfiles are listed in the `kind-load-images` recipe in the `Justfile`.
+Images that are built from the repo root (the Python ones copy `pyproject.toml`, `uv.lock`, `src/` and `projects/`) need the repo root as build context.
+`just build-and-push` pushes to that registry, and CI publishes the platform images to ghcr.io (`.github/workflows/images.yml`).
 
 ### PostgreSQL
 
-Single in-cluster instance (Bitnami, aliased `zitadel-db`) serves the `zitadel`, `dagster`, `marquez` and `ducklake` databases.
-No password lives in the values files.
+One Postgres instance serves the `zitadel`, `dagster`, `marquez` and `ducklake` databases, as a container in Compose and the Bitnami subchart (`zitadel-db`) in Kubernetes.
+The `srdp-setup` service (Compose) or Job (Kubernetes) creates every database and role from `srdp.toml` `[setup]` or `values.yaml` `setup.databases`, and resets each role's password to the configured value on every deploy.
+Never delete the Postgres volume or PVC to fix a password mismatch, because that destroys all data.
+Rerun the deploy instead, as `docs/06-troubleshooting.md` describes.
+
+No password lives in the chart's values files.
 Every consumer reads a Secret with a fixed name: `srdp-postgres`, `srdp-zitadel`, `srdp-oauth2-proxy`, `srdp-dagster-postgresql` and `srdp-marquez` (keys listed in `values.yaml`).
 DuckLake on S3 (`ducklakeStorage.backend: s3`) adds `srdp-ducklake-s3-writer` for Dagster and `srdp-ducklake-s3-reader` for the apps.
 Never give an app the writer Secret, because a SQL console runs with the full authority of its S3 key.
@@ -62,13 +60,11 @@ In kind, `templates/local-secrets.yaml` creates them from `localSecrets` in `val
 Elsewhere, External Secrets creates them.
 The Zitadel master key in `srdp-zitadel` must be exactly 32 characters.
 
-If PostgreSQL is redeployed with a stale PVC, delete the PVC and redeploy.
-
 ### Known gotchas
 
 - Zitadel master key must be exactly 32 characters.
-- `imagePullPolicy: Never` in local — `ImagePullBackOff` means image not in containerd cache.
+- `imagePullPolicy: Never` in local, so `ImagePullBackOff` means the image isn't loaded into kind (`just kind-load-images`).
 - `tofu destroy` fails if LB not released first. Run `just prod-uninstall` before destroy.
 - Traefik stuck in Init: `ReadWriteOnce` PVC held by previous pod. Delete old pod/PVC.
 - OAuth login loops: domain mismatch between `global.domain`, Zitadel OIDC redirect, and oauth2-proxy `--oidc-issuer-url`.
-- Dagster CrashLoopBackOff with "password authentication failed": delete `zitadel-db` PVC and redeploy.
+- Dagster CrashLoopBackOff with "password authentication failed": rerun `just local-deploy` (or `helm upgrade`) so `srdp-setup` resets the role password, see `docs/06-troubleshooting.md`.

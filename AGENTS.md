@@ -8,6 +8,8 @@ This file describes the structure and rules of the **Single-Repo Data Platform (
 
 SRDP assembles a modern open-source data platform (Zitadel, Traefik, Dagster, Polars/DuckDB, marimo) into a single Git repository with two deployment targets: Docker Compose and Kubernetes (Helm + Scaleway Kapsule).
 
+Every change should move SRDP toward a production-ready, hardened and configurable platform that deploys with a single command and standard settings in `srdp.toml`.
+
 ---
 
 ## Repository layout
@@ -45,6 +47,7 @@ srdp/
 - Local domains are `*.srdp.localhost`, not `.local.dev`. The `.localhost` TLD auto-resolves to loopback, so no `/etc/hosts` edit is needed.
 - Branch names: `<type>/<issue-number>-<short-slug>` (e.g. `fix/123-short-desc`), `<type>` = Conventional Commits type. Open an issue first if none exists.
 - Review scripts/workflows/manifests for: injection (unquoted dynamic values in shell/query/template), least privilege (minimum access for containers/credentials/grants), state consistency (mirrored values updated together), failure ordering (validate before mutating).
+- State only what was tested. Name the target (Compose or Kubernetes), the component version, and whether it was a fresh install or an upgrade. Anything else goes under "not verified".
 - Docker Compose and Kubernetes are both always in scope for deployment changes, never just one. Building or fixing something for one target without the other is how they diverge.
 
 ## Markdown
@@ -55,7 +58,7 @@ Full rules live in [`markdown.instructions.md`](.github/instructions/markdown.in
 
 ## Detailed instructions
 
-Domain-specific conventions are in `.github/instructions/` and load automatically based on file context:
+Domain-specific conventions are in `.github/instructions/`. GitHub Copilot loads them by file context through their `applyTo` globs, and Claude Code imports them all through `CLAUDE.md`. Other assistants should read the ones that apply:
 
 | File | Applies to |
 |:---|:---|

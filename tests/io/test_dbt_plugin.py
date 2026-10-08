@@ -1,8 +1,11 @@
+import logging
 import shutil
 import socket
 import subprocess
+import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 
 import duckdb
 import pytest
@@ -62,9 +65,9 @@ def test_dbt_connection_gets_the_s3_secret_and_the_attached_lake(monkeypatch, du
         "STORAGE_BACKEND": "s3",
         "S3_BUCKET": "lake",
         "S3_PREFIX": "dev",
-        "S3_ENDPOINT": "minio:9000",
+        "S3_ENDPOINT": "garage:3900",
         "S3_URL_STYLE": "path",
-        "S3_REGION": "us-east-1",
+        "S3_REGION": "garage",
         "S3_USE_SSL": "false",
         "S3_KEY_ID": "WRITER",
         "S3_SECRET": "writer-secret",
@@ -91,3 +94,22 @@ def test_dbt_connection_on_local_storage_attaches_the_lake_without_a_secret(duck
     assert conn.execute("SELECT count(*) FROM duckdb_secrets()").fetchone() == (0,)
     [(data_path,)] = conn.execute("SELECT value FROM ducklake.options() WHERE option_name = 'data_path'").fetchall()
     assert data_path.rstrip("/") == str(tmp_path / "lake")
+
+
+def test_dbt_connections_racing_to_set_up_a_new_catalog_all_attach(ducklake_env, tmp_path, caplog):
+    """A dbt run next to Dagster, or a second dbt run, can make the first ATTACH of a new catalog at the same moment."""
+    racers = 4
+    start = threading.Barrier(racers)
+    conns = [duckdb.connect() for _ in range(racers)]
+
+    def attach(conn: duckdb.DuckDBPyConnection) -> None:
+        start.wait()
+        BasePlugin.create("srdp.io.dbt_plugin").configure_connection(conn)
+
+    with caplog.at_level(logging.WARNING, logger="srdp.io.ducklake"), ThreadPoolExecutor(racers) as pool:
+        list(pool.map(attach, conns))
+
+    assert "init race" in caplog.text, "no connection lost the race, so the retry went untested"
+    for conn in conns:
+        [(data_path,)] = conn.execute("SELECT value FROM ducklake.options() WHERE option_name = 'data_path'").fetchall()
+        assert data_path.rstrip("/") == str(tmp_path / "lake")

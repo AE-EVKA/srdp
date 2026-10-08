@@ -38,7 +38,7 @@ You can verify they agree yourself. See "Checking the data" below.
 ### Why some assets don't show up as DuckLake tables
 
 The `ducklake_io_manager` only knows how to write `pl.DataFrame`/`pl.LazyFrame`.
-`top_province` and `executive_summary` return plain strings (a scalar answer, not a dataset worth cataloging), so they don't set `io_manager_key="ducklake_io_manager"` and fall back to Dagster's default in-memory IO manager instead.
+`top_province` and `executive_summary` return plain strings (a scalar answer, not a dataset worth cataloging), so they set `io_manager_key="fs_io_manager"` (a `FilesystemIOManager`) instead of using the DuckLake IO manager that every other asset gets by default.
 This is deliberate, not an oversight: passing a string to `ducklake_io_manager` would fail at write time.
 
 ## Setup
@@ -46,12 +46,10 @@ This is deliberate, not an oversight: passing a string to `ducklake_io_manager` 
 From the repo root:
 
 ```bash
-# One-time: local CA + TLS certs for the *.srdp.localhost stack
-brew install mkcert
-mkcert -install
+# TLS certs for the *.srdp.localhost stack (install mkcert first, see docs/01-prerequisites.md)
 just docker-tls
 
-# Environment file (defaults are fine to start; see "First login" below)
+# Environment file: fill in the empty values, each comment says how to generate it
 cp deploy/docker/.env.example deploy/docker/.env
 
 # Build and start everything
@@ -133,10 +131,13 @@ Running it from a plain host shell instead needs the same `DUCKLAKE_*` variables
 Copy this directory, rename it, and update:
 - `projects/<new>/src/etl/definitions.py`: your assets/jobs
 - `projects/<new>/dbt/`: your dbt project (or delete it if you're not using dbt)
-- `projects/<new>/Dockerfile`: no changes usually needed, it's generic
-- `deploy/docker/docker-compose.yml`: point `dagster-code`'s build context at the new Dockerfile
+- `projects/<new>/Dockerfile`: replace `projects/cbs-example` in the `COPY` and `PYTHONPATH` lines with the new name
+- `deploy/docker/docker-compose.yml`: point the `dockerfile` of `dagster-code` at the new Dockerfile (the build context stays the repo root)
+- Kubernetes: the chart's code location deployment is `srdp-etl`, built by the `kind-load-images` recipe in the `Justfile` and by `deploy/opentofu/scaleway/build-and-push.sh`, so point the Dockerfile path in both at the new project
 
-See `.github/instructions/dagster.instructions.md` for the platform-wide conventions (IO manager usage, asset key → catalog mapping) any new project should follow.
+The module name `etl` and the names `dagster-code` and `srdp-etl` are hardcoded in several places, so keep them for now. A second project next to this one is not supported yet.
+
+See `.github/instructions/dagster.instructions.md` for the Dagster conventions, and the docstrings in `src/srdp/io/ducklake.py` for how an asset key maps to a DuckLake table.
 
 ---
 

@@ -10,10 +10,11 @@ icon: lucide/git-pull-request
 ```bash
 git clone https://github.com/srdp-hub/srdp.git
 cd srdp
-uv sync
-pre-commit install
-uv run pytest
+just init   # install dependencies and set up pre-commit
+just ci     # lint, type check and tests
 ```
+
+`just --list` shows all available commands.
 
 ## GitHub labels
 
@@ -37,7 +38,8 @@ Labels are managed in the GitHub UI under **Settings > Labels**. The set is inte
 
 We use GitHub Flow: feature branches from `main`, merged via PR.
 
-Branch naming: `<category>/<description>` (e.g., `feat/ducklake-io`, `fix/helm-pvc`, `docs/deployment`).
+Branch naming: `<type>/<issue-number>-<short-slug>` (e.g. `fix/123-short-desc`), where `<type>` is a Conventional Commits type such as `feat`, `fix`, `docs` or `chore`.
+Open an issue first if none exists.
 
 ## Pull requests
 
@@ -54,7 +56,18 @@ We follow [Semantic Versioning](https://semver.org/):
 - **Minor**: new features, non-breaking changes.
 - **Major**: breaking changes to public APIs or data formats.
 
+While SRDP is at 0.x, a minor release may contain breaking changes, and the changelog says what to change when it does.
 Documentation-only changes, CI updates, and test additions do not bump the version.
+
+## Releasing
+
+A maintainer cuts a release from `main` with `just release <version>`, for example `just release 0.4.0`.
+The script bumps the version in `pyproject.toml` and the lockfile, renames the `[Unreleased]` section of `CHANGELOG.md`, runs `just ci`, commits, and tags.
+Push the commit and the tag, and `release.yml` drafts a GitHub Release.
+Publishing that draft builds, scans and signs the platform images, and publishes the package to PyPI.
+
+A release candidate such as `just release 0.4.0-rc.1` leaves the changelog alone, and its draft is marked as a pre-release.
+It publishes the images with the exact version tag only, so `latest` stays on the last stable release.
 
 ## Architectural Decision Records (ADRs)
 
@@ -78,15 +91,12 @@ We follow the [MADR](https://adr.github.io/madr/) format.
 
 ## CI/CD
 
-CI runs on GitHub Actions. The current workflow:
+CI runs on GitHub Actions, and the workflows live in `.github/workflows/`.
 
-- **`docs.yml`**: builds and deploys documentation to GitHub Pages on push to `main` (paths: `docs/`).
-
-Planned workflows:
-
-- **`ci.yml`**: lint (ruff), type check (ty), test (pytest), security audit (uv-secure) on every PR.
-- **`images.yml`**: build and push container images to Scaleway Container Registry on push to `main`.
-- **`deploy.yml`**: `helm upgrade` against production using kubeconfig stored as a GitHub Actions secret.
+- **`ci.yml`** runs the pre-commit hooks and the tests on every pull request and every push to `main`.
+- **`images.yml`** builds and scans the platform images on pull requests and pushes to `main`, and publishes them to ghcr.io when a release is published.
+- **`docs.yml`** builds and deploys this documentation to GitHub Pages.
+- **`release.yml`** and **`publish.yml`** create a release from a version tag and publish the package to PyPI.
 
 Production deployments can also be triggered manually via `just prod-full` as a fallback.
 
