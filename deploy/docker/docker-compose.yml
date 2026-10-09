@@ -57,7 +57,8 @@ services:
   traefik:
     image: traefik:v3.5.3
     container_name: srdp-traefik
-    # The dashboard port (8080) is published by docker-compose.override.yml only, so a production run never exposes it.
+    # The dashboard port (8080) is published by docker-compose.override.yml
+    # only, so a production run never exposes it.
     ports:
       - "80:80"
       - "443:443"
@@ -66,7 +67,9 @@ services:
       SRDP_DOMAIN: "${SRDP_DOMAIN:-srdp.localhost}"
     volumes:
       - "../../config/traefik/traefik.yml:/etc/traefik/traefik.yaml:ro"
-      # Each routing file is mounted on its own, so an overlay can add its own file to /etc/traefik/dynamic/ (a read-only directory mount would prevent that).
+      # Each routing file is mounted on its own, so an overlay can add its own
+      # file to /etc/traefik/dynamic/ (a read-only directory mount would
+      # prevent that).
       - "../../config/traefik/dynamic/srdp.yml:/etc/traefik/dynamic/srdp.yml:ro"
     healthcheck:
       test: ["CMD", "traefik", "healthcheck", "--ping"]

@@ -20,7 +20,8 @@
 #      if nothing changed.
 #
 # Usage: deploy/docker/provision-oidc.sh   (run from anywhere; requires the
-# Compose stack to be up, since it talks to Zitadel over auth.<domain>, with the domain from srdp.toml [deploy])
+# Compose stack to be up, since it talks to Zitadel over auth.<domain>, with
+# the domain from srdp.toml [deploy])
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

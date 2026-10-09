@@ -9,12 +9,19 @@ registry := `uv run --no-project python -c 'import sys, tomllib; sys.stdout.writ
 # Helm patches deployments[0] in place only when a -f file defines the list
 # (values.yaml or values-prod.yaml do), otherwise the --set replaces it.
 registry_args := "--set-string 'global.srdpRegistry=" + registry + "' --set-string 'dagster.dagster-user-deployments.deployments[0].image.repository=" + registry + "/srdp-etl'"
-# Base domain of every hostname, from srdp.toml [deploy]. Compose reads it as SRDP_DOMAIN. The local kind deploy passes it to the chart as global.domain and to the Zitadel and OAuth2-Proxy subchart values derived from it, which the chart cannot template. The prod recipes keep taking the domain from values-prod.yaml.
+# Base domain of every hostname, from srdp.toml [deploy]. Compose reads it as
+# SRDP_DOMAIN. The local kind deploy passes it to the chart as global.domain
+# and to the Zitadel and OAuth2-Proxy subchart values derived from it, which
+# the chart cannot template. The prod recipes keep taking the domain from
+# values-prod.yaml.
 domain := `uv run --no-project python -c 'import sys, tomllib; sys.stdout.write(tomllib.load(open("srdp.toml", "rb"))["deploy"]["domain"])'`
-# Helm patches the list items in place because values.yaml defines the lists. The Zitadel login config is a single string in values-local.yaml, so it is set as a JSON string to keep its newlines.
+# Helm patches the list items in place because values.yaml defines the lists.
+# The Zitadel login config is a single string in values-local.yaml, so it is
+# set as a JSON string to keep its newlines.
 domain_args := "--set-string 'global.domain=" + domain + "' --set-string 'zitadel.zitadel.configmapConfig.ExternalDomain=auth." + domain + "' --set-string 'oauth2-proxy.extraArgs.cookie-domain=." + domain + "' --set-string 'oauth2-proxy.extraArgs.whitelist-domain=." + domain + "' --set-string 'oauth2-proxy.extraArgs.oidc-issuer-url=https://auth." + domain + "' --set-string 'oauth2-proxy.customRequestHeaders[0]=Host:auth." + domain + "' --set-string 'oauth2-proxy.hostAliases[0].hostnames[0]=auth." + domain + "'"
 local_domain_args := domain_args + " --set-json 'zitadel.login.customConfigmapConfig=\"ZITADEL_SERVICE_USER_TOKEN_FILE=\\\"/login-client/pat\\\"\\nZITADEL_API_URL=\\\"http://srdp-zitadel:8080\\\"\\nCUSTOM_REQUEST_HEADERS=\\\"Host:auth." + domain + ",X-Zitadel-Public-Host:auth." + domain + "\\\"\\n\"'"
-# Every hostname the stack serves, for the mkcert certificates. The wildcard also covers a client project's own hostnames under the domain.
+# Every hostname the stack serves, for the mkcert certificates. The wildcard
+# also covers a client project's own hostnames under the domain.
 domain_hosts := '"' + domain + '" "*.' + domain + '" "auth.' + domain + '" "marimo.' + domain + '" "dagster.' + domain + '" "streamlit.' + domain + '" "marquez.' + domain + '" "api.' + domain + '" "duckdb.' + domain + '"'
 # The chart rolls its own pods when a local Secret changes (srdp.localSecretsChecksum).
 # Subcharts cannot hash the parent's Secrets, so local-deploy passes them a hash of
