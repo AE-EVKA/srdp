@@ -67,7 +67,7 @@ services:
       - "443:443"
     environment:
       # Read by the routing templates in config/traefik/dynamic/.
-      SRDP_DOMAIN: "${SRDP_DOMAIN:-srdp.localhost}"
+      SRDP_DOMAIN: "${SRDP_DOMAIN:?set it in srdp.toml, use just docker-up}"
     volumes:
       - "../../config/traefik/traefik.yml:/etc/traefik/traefik.yaml:ro"
       # Each routing file is mounted on its own, so an overlay can add its own
@@ -82,7 +82,7 @@ services:
     networks:
       app:
         aliases:
-          - auth.${SRDP_DOMAIN:-srdp.localhost}
+          - auth.${SRDP_DOMAIN:?set it in srdp.toml, use just docker-up}
     depends_on:
       zitadel:
         condition: service_healthy
@@ -124,7 +124,7 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      ZITADEL_EXTERNALDOMAIN: auth.${SRDP_DOMAIN:-srdp.localhost}
+      ZITADEL_EXTERNALDOMAIN: auth.${SRDP_DOMAIN:?set it in srdp.toml, use just docker-up}
       ZITADEL_LOGSTORE_ACCESS_STDOUT_ENABLED: true
       ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORDCHANGEREQUIRED: false
       ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD: "${ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD}"
@@ -153,7 +153,7 @@ services:
       - ZITADEL_API_URL=https://zitadel:8080
       - NEXT_PUBLIC_BASE_PATH=/ui/v2/login
       - ZITADEL_SERVICE_USER_TOKEN_FILE=/current-dir/login-client.pat
-      - CUSTOM_REQUEST_HEADERS=Host:auth.${SRDP_DOMAIN:-srdp.localhost}
+      - CUSTOM_REQUEST_HEADERS=Host:auth.${SRDP_DOMAIN:?set it in srdp.toml, use just docker-up}
       - NODE_TLS_REJECT_UNAUTHORIZED=0
     volumes:
       - '.:/current-dir:ro'
@@ -180,15 +180,15 @@ services:
       - --reverse-proxy=true
       - --pass-host-header=true
       - --proxy-prefix=/oauth2
-      - --whitelist-domain=.${SRDP_DOMAIN:-srdp.localhost}
+      - --whitelist-domain=.${SRDP_DOMAIN:?set it in srdp.toml, use just docker-up}
       - --set-xauthrequest=true
       - --provider-display-name=ZITADEL
-      - --oidc-issuer-url=https://auth.${SRDP_DOMAIN:-srdp.localhost}
+      - --oidc-issuer-url=https://auth.${SRDP_DOMAIN:?set it in srdp.toml, use just docker-up}
       - --insecure-oidc-skip-issuer-verification=true
       - --ssl-insecure-skip-verify
       - --skip-provider-button
       - --cookie-name=_oauth2_proxy
-      - --cookie-domain=.${SRDP_DOMAIN:-srdp.localhost}
+      - --cookie-domain=.${SRDP_DOMAIN:?set it in srdp.toml, use just docker-up}
       - --cookie-secure=true
       - --cookie-samesite=lax
       - --pass-authorization-header=false
@@ -197,7 +197,7 @@ services:
       # access token this same session hands the user via /token) skip the
       # cookie/redirect flow entirely, for calling the API outside a browser.
       - --skip-jwt-bearer-tokens=true
-      - --extra-jwt-issuers=https://auth.${SRDP_DOMAIN:-srdp.localhost}=${OIDC_CLIENT_ID}
+      - --extra-jwt-issuers=https://auth.${SRDP_DOMAIN:?set it in srdp.toml, use just docker-up}=${OIDC_CLIENT_ID}
     environment:
       OAUTH2_PROXY_CLIENT_ID: "${OIDC_CLIENT_ID}"
       OAUTH2_PROXY_CLIENT_SECRET: "${OIDC_CLIENT_SECRET}"

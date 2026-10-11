@@ -19,6 +19,7 @@ The `*.srdp.localhost` domains resolve to your own machine by themselves, so no 
 The base domain of every hostname is `domain` in the `[deploy]` table of `srdp.toml`.
 To use another one, change it there before the first start, then run the TLS recipe of your option and start the stack.
 The `just` recipes pass it to Docker Compose and to the local Helm deploy, so every hostname from `auth.<domain>` to `dagster.<domain>` follows it.
+Docker Compose gets it as `SRDP_DOMAIN` and won't start without it, so `docker compose up` without `just` needs it too, for example `SRDP_DOMAIN=srdp.localhost docker compose up`.
 Zitadel records its domain when it starts for the first time.
 A domain outside `.localhost` also needs DNS records that point its hostnames at your machine.
 
@@ -146,7 +147,7 @@ If the login name differs, check it under **Users** in the Zitadel console.
 1. Create (or open) a project, then add an application of type **Web**.
 2. Use the **Code** authentication flow (client ID + secret).
 3. Add a redirect URI `https://<host>/oauth2/callback` for each host that OAuth2-Proxy protects.
-   The host list is the `oauth2-proxy` router rule in `config/traefik/traefik.yml`.
+   The host list is the `oauth2-proxy` router rule in `config/traefik/dynamic/srdp.yml`.
    Docker Compose uses no port suffix, and the local `kind` cluster needs `:18443` on every URL (see step 2 of Option B).
 
 Zitadel then shows a **Client ID** and **Client Secret**.

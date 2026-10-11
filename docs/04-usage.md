@@ -14,7 +14,7 @@ The hub at `https://srdp.localhost` links to every service.
 ### Access services
 
 Each service has its own `https://<service>.srdp.localhost` address, for example `https://dagster.srdp.localhost`.
-The `oauth2-proxy` router rule in `config/traefik/traefik.yml` lists every protected host.
+The `oauth2-proxy` router rule in `config/traefik/dynamic/srdp.yml` lists every protected host.
 The Traefik dashboard at `http://localhost:8080` shows all routers and services, which helps when debugging routing.
 
 ### Manage the stack

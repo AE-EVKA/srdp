@@ -60,11 +60,6 @@ All notable changes to SRDP are documented here. The format follows [Keep a Chan
 - The chart's setup Job runs before Zitadel's hooks, gives up after 2 retries or 4 minutes, and can be switched off with `setup.enabled`.
   It stays after it succeeds, until the next install or upgrade, so `kubectl logs job/srdp-setup` always shows the last run.
   Each connection attempt times out after 5 seconds, so an unreachable host can't use up those 4 minutes.
-- `just build-and-push` also builds and pushes the `srdp-setup` image, and stops on the first failed build or push.
-- Docker Compose routing moved from `config/traefik/traefik.yml` to `config/traefik/dynamic/srdp.yml`, which takes every hostname from `SRDP_DOMAIN` (#91).
-  `traefik.yml` keeps only Traefik's static configuration.
-  Compose mounts each routing file on its own, so an overlay can add its own routing file to `/etc/traefik/dynamic/`.
-- The Traefik dashboard port 8080 is published by `docker-compose.override.yml` only, so a production run doesn't expose it.
 - `just build-and-push` stops on the first failed build or push.
 - Every third-party container image is pinned to an exact version, by digest where possible, and Compose and the chart run the same version of each. A test checks it.
   Existing `values-prod.yaml` files must pin the same images in their wait containers, since their lists replace the chart's.
@@ -79,6 +74,13 @@ All notable changes to SRDP are documented here. The format follows [Keep a Chan
 - For development only, the Compose override and `values-local.yaml` set `OPENSSL_armcap=0` on the Dagster containers, because `cryptography` 47 to 50 crashes on import on Colima on an Apple M4 (tested on that host only).
 - One Python build in every image, from one `python` and one `uv` reference. A test checks it.
 - Streamlit and Marimo are dependency groups in `pyproject.toml`, installed with `uv sync --group`.
+- Docker Compose routing moved from `config/traefik/traefik.yml` to `config/traefik/dynamic/srdp.yml`, which takes every hostname from `SRDP_DOMAIN` (#91).
+  `traefik.yml` keeps only Traefik's static configuration.
+  Compose mounts each routing file on its own, so an overlay can add its own routing file to `/etc/traefik/dynamic/`.
+  Routers edited in `traefik.yml` no longer apply, move them to `dynamic/srdp.yml`.
+- Docker Compose requires `SRDP_DOMAIN` and won't start without it, instead of falling back to `srdp.localhost` (#91).
+  The `just` recipes set it from `srdp.toml`, so `docker compose up` without `just`, including a production run, needs `SRDP_DOMAIN`.
+- The Traefik dashboard port 8080 is published by `docker-compose.override.yml` only, so a production run doesn't expose it.
 
 ### Removed
 

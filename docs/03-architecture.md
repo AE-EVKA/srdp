@@ -287,10 +287,11 @@ Shared across all services. The `srdp-setup` service (`src/srdp/setup/`) creates
 
 ### Traefik
 
-- Docker provider discovers services via container labels.
-- Static routes for Zitadel and Zitadel Login are defined in `config/traefik/traefik.yml` (file provider) because they require `insecureSkipVerify` for the self-signed backend.
-- All other services are routed via Docker labels on their containers.
-- TLS: mkcert certificates locally (via `tls.stores.default`), Let's Encrypt in production (via ACME cert resolver).
+- `config/traefik/traefik.yml` holds the static configuration, and the file provider reads the routing from `/etc/traefik/dynamic/`.
+- Every router, service and middleware is in `config/traefik/dynamic/srdp.yml`, with hostnames templated from `SRDP_DOMAIN`.
+  Zitadel and Zitadel Login use a `serversTransport` with `insecureSkipVerify` for the self-signed backend.
+- Compose mounts each routing file on its own, so an overlay can add a routing file of its own to `/etc/traefik/dynamic/`.
+- TLS: mkcert certificates locally (via `tls.stores.default` in `dynamic/local-tls.yml`, mounted by `docker-compose.override.yml`), Let's Encrypt in production (via the ACME cert resolver on the `websecure` entrypoint in `docker-compose.prod.yml`).
 
 ### Zitadel
 
@@ -328,6 +329,7 @@ config/
     workspace.yaml        # Code server location
   traefik/
     traefik.yml           # Traefik static configuration
+    dynamic/              # Routing (srdp.yml) and the local certificate (local-tls.yml)
 deploy/
   docker/
     docker-compose.yml    # Local development stack

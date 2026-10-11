@@ -18,14 +18,13 @@ def compose(name: str) -> dict[str, Any]:
     return yaml.safe_load((DOCKER_DIR / name).read_text())
 
 
-def test_compose_falls_back_to_the_srdp_toml_domain() -> None:
-    """`docker compose` without the Justfile (no SRDP_DOMAIN) must land on the same domain."""
+def test_compose_requires_srdp_domain() -> None:
+    """A run without SRDP_DOMAIN must stop instead of silently serving the local default domain."""
     text = (DOCKER_DIR / "docker-compose.yml").read_text()
-    defaults = re.findall(r"\$\{SRDP_DOMAIN:-([^}]*)\}", text)
-    assert defaults
-    assert set(defaults) == {DOMAIN}
-    without_defaults = re.sub(r"\$\{SRDP_DOMAIN:-[^}]*\}", "", text)
-    assert DOMAIN not in without_defaults
+    uses = re.findall(r"\$\{?SRDP_DOMAIN[^}]*\}?", text)
+    assert uses
+    assert all(use.startswith("${SRDP_DOMAIN:?") for use in uses), uses
+    assert DOMAIN not in text
 
 
 def test_routing_takes_every_hostname_from_srdp_domain() -> None:
